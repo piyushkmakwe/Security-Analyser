@@ -1,70 +1,136 @@
 # Security Analyser
 
-A starter scaffold for a security analysis tool. This repository provides a
-clean, well-structured Python project skeleton ready to be fleshed out with
-concrete scanning capabilities (static analysis, dependency/CVE checks,
-configuration auditing, etc.).
+A dependency-free command-line tool that scans a website for common security
+issues and generates a report of the vulnerabilities and threats it finds,
+along with how to fix each one.
 
-## Status
+It fetches your site and inspects:
 
-🚧 **Scaffold** — the project structure, CLI entry point, tests, and CI are in
-place. The analysis logic is intentionally minimal and meant to be extended.
+- **HTTPS enforcement** — is the site served over HTTPS, and does plain HTTP
+  redirect to it?
+- **TLS certificate** — validity, trust, hostname match, expiry, and protocol
+  version (flags TLS 1.1 and below).
+- **Security headers** — `Strict-Transport-Security` (HSTS),
+  `Content-Security-Policy`, `X-Frame-Options` / `frame-ancestors`,
+  `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
+- **Cookies** — missing `Secure`, `HttpOnly`, and `SameSite` attributes.
+- **CORS** — dangerous `Access-Control-Allow-Origin: *`, especially combined
+  with credentials.
+- **Information disclosure** — `Server` / `X-Powered-By` version banners.
+
+Each issue is reported as a **finding** with a severity
+(`critical` → `info`), an explanation, supporting evidence, and a concrete
+recommendation.
+
+> ⚠️ **Only scan sites you own or are authorised to test.** This tool makes
+> ordinary HTTP requests to the target, but you are responsible for having
+> permission to assess it.
+
+## Install
+
+Requires Python 3.9+. No third-party dependencies.
+
+```bash
+python -m pip install -e .
+```
+
+## Usage
+
+```bash
+# Text report to the terminal
+security-analyser scan https://your-website.com
+
+# Machine-readable JSON
+security-analyser scan https://your-website.com --format json
+
+# A shareable, self-contained HTML report
+security-analyser scan https://your-website.com --format html --output report.html
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `-f, --format {text,json,html}` | Output format (default `text`). |
+| `-o, --output PATH` | Write the report to a file instead of stdout. |
+| `--timeout SECONDS` | Network timeout (default 15). |
+| `--insecure` | Don't verify the TLS certificate when fetching (still reported as a finding). |
+| `--fail-on {critical,high,medium,low,info}` | Exit non-zero when a finding at this severity or higher exists (default `high`). Handy for CI gates. |
+
+### Exit codes
+
+- `0` — scan completed, nothing at/above the `--fail-on` threshold.
+- `1` — a finding at/above the threshold was found.
+- `2` — the target could not be reached, or the report could not be written.
+
+### Example
+
+```
+$ security-analyser scan https://example.com
+======================================================================
+SECURITY ANALYSER REPORT
+======================================================================
+Target      : https://example.com/
+TLS         : TLSv1.3 [verified], expires in 84d
+Summary     : 0 critical, 0 high, 3 medium, 2 low, 1 info
+----------------------------------------------------------------------
+[1] MEDIUM   Missing Content-Security-Policy header
+    Category : Security headers  (id: HDR-CSP)
+    Issue    : A Content-Security-Policy is a primary defence against XSS ...
+    Fix      : Define a restrictive Content-Security-Policy ...
+```
+
+## Use in CI
+
+Fail a pipeline when a high-or-worse issue appears:
+
+```bash
+security-analyser scan https://staging.your-website.com --fail-on high
+```
 
 ## Project layout
 
 ```
-Security-Analyser/
-├── src/
-│   └── security_analyser/
-│       ├── __init__.py       # package metadata
-│       ├── analyser.py       # core analysis logic (stub)
-│       └── cli.py            # command-line entry point
-├── tests/
-│   └── test_analyser.py      # unit tests
-├── .github/
-│   └── workflows/
-│       └── ci.yml            # lint + test on push / PR
-├── pyproject.toml            # build config & dependencies
-├── requirements-dev.txt      # development dependencies
-├── .gitignore
-├── LICENSE
-└── README.md
+src/security_analyser/
+├── __init__.py     # package API (exposes scan(), models)
+├── model.py        # Finding, Severity, Cookie, TlsInfo, ScanContext, ScanResult
+├── fetch.py        # network layer: fetch, cookie parsing, TLS inspection
+├── checks.py       # the security checks (one function per rule)
+├── scanner.py      # orchestration: fetch -> context -> run checks
+├── report.py       # text / JSON / HTML renderers
+└── cli.py          # command-line entry point
+tests/              # unit tests (no network required)
 ```
 
-## Getting started
+## Extending it with new checks
 
-Requires Python 3.9+.
+Every rule lives in `checks.py` as a function that takes a `ScanContext` and
+returns a list of `Finding`. To add a check, write the function and append it
+to `ALL_CHECKS`:
 
-```bash
-# Install in editable mode with dev dependencies
-python -m pip install -e .
-python -m pip install -r requirements-dev.txt
+```python
+def check_x_download_options(ctx: ScanContext) -> list[Finding]:
+    if ctx.headers.has("X-Download-Options"):
+        return []
+    return [Finding(
+        id="HDR-XDO",
+        title="Missing X-Download-Options header",
+        severity=Severity.INFO,
+        category="Security headers",
+        description="...",
+        recommendation="Add 'X-Download-Options: noopen'.",
+    )]
 
-# Run the CLI
-security-analyser --help
-security-analyser scan .
-
-# Run the tests
-pytest
+ALL_CHECKS.append(check_x_download_options)
 ```
 
 ## Development
 
 ```bash
-# Lint
-ruff check .
-
-# Run tests
-pytest -q
+python -m pip install -r requirements-dev.txt
+python -m ruff check .
+python -m pytest -q
 ```
-
-## Extending the scaffold
-
-The scanning logic lives in `src/security_analyser/analyser.py`. The
-`Analyser.scan()` method returns a list of `Finding` objects. To add a real
-check, implement a rule that inspects the target and appends `Finding`
-instances. The CLI in `cli.py` already wires argument parsing to the analyser
-and formats the results.
 
 ## License
 
