@@ -17,6 +17,13 @@ It fetches your site and inspects:
 - **CORS** — dangerous `Access-Control-Allow-Origin: *`, especially combined
   with credentials.
 - **Information disclosure** — `Server` / `X-Powered-By` version banners.
+- **Content integrity** (can the page/data be altered?) — mixed content
+  (HTTP resources on an HTTPS page), third-party scripts without Subresource
+  Integrity, and forms that submit over plain HTTP.
+- **Secret exposure** (is an API key extractable?) — scans the served
+  HTML/JavaScript for exposed API keys, tokens, and private keys (AWS, Google,
+  Stripe, GitHub, Slack, JWTs, generic `api_key = "…"`). Matches are
+  **redacted** in the report so it never leaks the secret itself.
 
 Each issue is reported as a **finding** with a severity
 (`critical` → `info`), an explanation, supporting evidence, and a concrete

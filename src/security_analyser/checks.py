@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Callable, List
 
+from security_analyser.content_checks import CONTENT_CHECKS
 from security_analyser.model import Finding, ScanContext, Severity
 
 Check = Callable[[ScanContext], List[Finding]]
@@ -464,6 +465,7 @@ ALL_CHECKS: List[Check] = [
     check_cookies,
     check_information_disclosure,
     check_cors,
+    *CONTENT_CHECKS,
 ]
 
 
