@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "security-analyser"
 version = "0.1.0"
-description = "A starter scaffold for a security analysis tool."
+description = "Scan a website for common security issues and generate a report."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [{ name = "Piyush Makwana" }]
-keywords = ["security", "analysis", "scanner", "sast"]
+keywords = ["security", "scanner", "web-security", "security-headers", "tls"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
