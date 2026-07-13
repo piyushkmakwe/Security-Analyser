@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import List, Optional
 
@@ -57,12 +58,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve_p = subparsers.add_parser("serve", help="Launch the web UI.")
     serve_p.add_argument(
-        "--host", default="127.0.0.1",
-        help="Interface to bind (default: 127.0.0.1, localhost only).",
+        "--host", default=os.environ.get("HOST", "127.0.0.1"),
+        help=(
+            "Interface to bind (default: 127.0.0.1, localhost only; or the HOST "
+            "env var). Use 0.0.0.0 to accept external connections when hosting."
+        ),
     )
     serve_p.add_argument(
-        "-p", "--port", type=int, default=8000,
-        help="Port to listen on (default: 8000).",
+        "-p", "--port", type=int, default=int(os.environ.get("PORT", "8000")),
+        help="Port to listen on (default: 8000, or the PORT env var).",
     )
     return parser
 

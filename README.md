@@ -57,6 +57,12 @@ sites.
 security-analyser serve --host 127.0.0.1 --port 8080
 ```
 
+### Want a shareable / hosted link?
+
+See **[DEPLOY.md](DEPLOY.md)** for three options: run locally (private), a
+temporary public tunnel, or a permanent hosted URL (a `Dockerfile` and
+`render.yaml` blueprint are included for one-click deploys).
+
 ## Command-line usage
 
 ```bash

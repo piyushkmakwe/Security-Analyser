@@ -1,0 +1,11 @@
+# Render.com Blueprint — deploy the Security Analyser web UI with a public URL.
+# 1. Push this repo to GitHub (already done).
+# 2. Go to https://dashboard.render.com/select-repo?type=blueprint and pick this repo.
+# 3. Render builds the Dockerfile and gives you a https://<name>.onrender.com link.
+services:
+  - type: web
+    name: security-analyser
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
