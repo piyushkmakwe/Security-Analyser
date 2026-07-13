@@ -34,7 +34,30 @@ Requires Python 3.9+. No third-party dependencies.
 python -m pip install -e .
 ```
 
-## Usage
+## Web UI
+
+Prefer a point-and-click interface? Launch the built-in web app:
+
+```bash
+security-analyser serve
+# Security Analyser web UI running at http://127.0.0.1:8000/
+```
+
+Then open http://127.0.0.1:8000 in your browser, type a URL, and hit **Scan**.
+You get a letter **risk grade (A–F)**, clickable severity cards to filter
+findings, a search box, and one-click **JSON export** / **print**. It has a
+light and dark theme and works on mobile.
+
+The server binds to **localhost only** by default. Because the scanner makes
+outbound requests to whatever URL it is given, avoid exposing it on a public
+interface (`--host 0.0.0.0`) where others could use your host to probe other
+sites.
+
+```bash
+security-analyser serve --host 127.0.0.1 --port 8080
+```
+
+## Command-line usage
 
 ```bash
 # Text report to the terminal
@@ -97,8 +120,10 @@ src/security_analyser/
 ├── fetch.py        # network layer: fetch, cookie parsing, TLS inspection
 ├── checks.py       # the security checks (one function per rule)
 ├── scanner.py      # orchestration: fetch -> context -> run checks
-├── report.py       # text / JSON / HTML renderers
-└── cli.py          # command-line entry point
+├── report.py       # text / JSON / HTML renderers + shared payload builder
+├── web.py          # stdlib web server + /api/scan endpoint
+├── static/         # self-contained single-page UI (HTML/CSS/JS)
+└── cli.py          # command-line entry point (scan + serve)
 tests/              # unit tests (no network required)
 ```
 

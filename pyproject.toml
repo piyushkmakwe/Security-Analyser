@@ -29,6 +29,9 @@ Homepage = "https://github.com/piyushkmakwe/Security-Analyser"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+security_analyser = ["static/*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py39"
