@@ -15,10 +15,12 @@ from typing import Tuple
 
 from security_analyser import __version__
 from security_analyser.fetch import DEFAULT_TIMEOUT
-from security_analyser.report import result_to_payload
+from security_analyser.report import render_html_payload, result_to_payload
 from security_analyser.scanner import scan
 
 MAX_BODY_BYTES = 64 * 1024
+# The report endpoint echoes back a full scan payload, so allow a larger body.
+REPORT_BODY_BYTES = 4 * 1024 * 1024
 
 _STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -50,10 +52,45 @@ def run_scan_request(payload: dict) -> Tuple[int, dict]:
     verify_tls = bool(payload.get("verify_tls", True))
 
     try:
-        result = scan(url, timeout=timeout, verify_tls=verify_tls)
+        max_pages = int(payload.get("max_pages") or 1)
+        depth = int(payload.get("depth") or 1)
+    except (TypeError, ValueError):
+        return 400, {"error": "'max_pages' and 'depth' must be numbers."}
+    max_pages = max(1, min(max_pages, 25))
+    depth = max(1, min(depth, 3))
+    probe = bool(payload.get("probe_paths", False))
+
+    try:
+        if max_pages > 1 or depth > 1 or probe:
+            from security_analyser.crawler import crawl
+
+            result = crawl(
+                url, max_pages=max_pages, depth=depth, timeout=timeout,
+                verify_tls=verify_tls, probe_paths_enabled=probe,
+            )
+        else:
+            result = scan(url, timeout=timeout, verify_tls=verify_tls)
     except ValueError as exc:
         return 400, {"error": str(exc)}
     return 200, result_to_payload(result)
+
+
+def run_report_request(payload: dict) -> Tuple[int, str]:
+    """Render a downloadable HTML report from a scan payload.
+
+    Accepts the payload the client already holds (``{"payload": {...}}``) so no
+    re-scan is needed; falls back to re-scanning when only a URL is supplied.
+    Returns ``(http_status, html)``.
+    """
+    data = payload.get("payload")
+    if isinstance(data, dict):
+        return 200, render_html_payload(data)
+    if payload.get("url"):
+        status, result = run_scan_request(payload)
+        if status != 200:
+            return status, f"<p>{result.get('error', 'Scan failed.')}</p>"
+        return 200, render_html_payload(result)
+    return 400, "<p>Provide a 'payload' object or a 'url' to render a report.</p>"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -73,6 +110,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_json(self, status: int, obj: dict) -> None:
         self._send(status, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
+
+    def _read_json_body(self, max_bytes: int):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > max_bytes:
+            return None
+        raw = self.rfile.read(length)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def _serve_static(self, name: str) -> None:
         ext = name[name.rfind(".") :] if "." in name else ""
@@ -99,23 +147,23 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path.split("?", 1)[0] != "/api/scan":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/scan":
+            payload = self._read_json_body(MAX_BODY_BYTES)
+            if payload is None:
+                self._send_json(400, {"error": "Request body must be a JSON object."})
+                return
+            status, response = run_scan_request(payload)
+            self._send_json(status, response)
+        elif path == "/api/report":
+            payload = self._read_json_body(REPORT_BODY_BYTES)
+            if payload is None:
+                self._send_json(400, {"error": "Request body must be a JSON object."})
+                return
+            status, report_html = run_report_request(payload)
+            self._send(status, report_html.encode("utf-8"), "text/html; charset=utf-8")
+        else:
             self._send_json(404, {"error": "Not found"})
-            return
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > MAX_BODY_BYTES:
-            self._send_json(400, {"error": "Invalid or missing request body."})
-            return
-        raw = self.rfile.read(length)
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError
-        except (ValueError, UnicodeDecodeError):
-            self._send_json(400, {"error": "Request body must be a JSON object."})
-            return
-        status, response = run_scan_request(payload)
-        self._send_json(status, response)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> None:

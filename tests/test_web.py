@@ -33,6 +33,22 @@ def test_payload_shape():
     assert payload["summary"]["medium"] == 1
     assert payload["highest_severity"] == "medium"
     assert payload["findings"][0]["id"] == "X-medium"
+    # Scorecard + overall score are part of the payload.
+    assert payload["score"] is not None
+    assert payload["scorecard"]["controls"]
+
+
+def test_report_request_from_payload():
+    payload = result_to_payload(_result([_finding(Severity.HIGH)]))
+    status, html = web.run_report_request({"payload": payload})
+    assert status == 200
+    assert "<!DOCTYPE html>" in html
+    assert "Scorecard" in html
+
+
+def test_report_request_requires_input():
+    status, html = web.run_report_request({})
+    assert status == 400
 
 
 def test_grade_scale():

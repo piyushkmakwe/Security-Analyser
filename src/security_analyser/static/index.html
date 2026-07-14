@@ -172,6 +172,24 @@
     display: block; margin-bottom: .15rem; }
   .clean { text-align: center; padding: 2.5rem 1rem; color: var(--ok); font-size: 1.15rem; font-weight: 600; }
 
+  .section-h { font-size: .95rem; font-weight: 700; margin: 1.6rem 0 .7rem; }
+  .score-big { color: var(--accent-2); }
+  .scorecard { background: var(--card); border: 1px solid var(--border); border-radius: 13px;
+    overflow: hidden; margin-bottom: .5rem; }
+  .sc-row { display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid var(--border); }
+  .sc-row:first-child { border-top: none; }
+  .sc-status { width: 82px; font-size: .68rem; font-weight: 700; letter-spacing: .03em;
+    display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+  .sc-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .sc-main { flex: 1; min-width: 0; }
+  .sc-title { font-weight: 600; font-size: .9rem; }
+  .sc-sum { font-size: .78rem; color: var(--muted); margin-top: .1rem; }
+  .sc-score { width: 116px; flex-shrink: 0; text-align: right; font-size: .8rem; font-weight: 700; }
+  .sc-bar { height: 5px; background: var(--bg-2); border-radius: 999px; margin-top: .3rem; overflow: hidden; }
+  .sc-bar span { display: block; height: 100%; }
+  .st-safe { color: var(--ok); } .st-review { color: var(--low); }
+  .st-unsafe { color: var(--high); } .st-na { color: var(--faint); }
+
   footer { text-align: center; color: var(--faint); font-size: .78rem; margin-top: 2.5rem; }
   footer .warn { color: var(--medium); }
 
@@ -213,6 +231,15 @@
       <label title="Verify the TLS certificate when connecting">
         <span class="switch"><input type="checkbox" id="verifyTls" checked><span class="slider"></span></span>
         Verify TLS certificate
+      </label>
+      <label title="Follow same-origin links and scan multiple pages">
+        <span class="switch"><input type="checkbox" id="crawl"><span class="slider"></span></span>
+        Crawl pages
+      </label>
+      <label title="Max pages to scan when crawling">Max <input type="number" id="maxPages" value="10" min="1" max="25"></label>
+      <label title="Probe for exposed files like .git, .env, backups">
+        <span class="switch"><input type="checkbox" id="probePaths"><span class="slider"></span></span>
+        Probe sensitive paths
       </label>
       <label>Timeout <input type="number" id="timeout" value="15" min="1" max="120"> s</label>
     </div>
@@ -273,6 +300,8 @@ $("#scanForm").addEventListener("submit", async (e) => {
         url,
         verify_tls: $("#verifyTls").checked,
         timeout: Number($("#timeout").value) || 15,
+        max_pages: $("#crawl").checked ? (Number($("#maxPages").value) || 10) : 1,
+        probe_paths: $("#probePaths").checked,
       }),
     });
     const data = await res.json();
@@ -331,16 +360,21 @@ function renderResults(d) {
       <div class="meta">
         <h2>${escapeHtml(d.final_url || d.target)}</h2>
         <div class="rows">
+          <span>Score <b class="score-big">${d.score ?? "—"}/100</b></span>
           <span>Status <b>${d.status_code ?? "—"}</b></span>
           ${tlsRow}
+          ${d.pages_scanned > 1 ? `<span>Pages <b>${d.pages_scanned}</b></span>` : ""}
           <span><b>${d.total_findings}</b> issue${d.total_findings === 1 ? "" : "s"} found</span>
         </div>
       </div>
     </div>
     <div class="cards" id="cards">${cards}</div>
+    <h3 class="section-h">Scorecard — every check (is it safe?)</h3>
+    ${renderScorecard(d.scorecard)}
     <div class="toolbar">
       <div class="search"><input type="text" id="search" placeholder="Filter findings…" autocomplete="off"></div>
       <button class="btn-ghost" id="clearFilter" style="display:none">Clear filter</button>
+      <button class="btn-ghost" id="dlReport">⬇ Report (HTML)</button>
       <button class="btn-ghost" id="dlJson">⬇ JSON</button>
       <button class="btn-ghost" id="print">🖨 Print</button>
     </div>
@@ -357,8 +391,30 @@ function renderResults(d) {
   $("#search").addEventListener("input", renderFindings);
   $("#clearFilter").addEventListener("click", () => { activeFilter = null; syncFilterUI(); renderFindings(); });
   $("#dlJson").addEventListener("click", downloadJson);
+  $("#dlReport").addEventListener("click", downloadReport);
   $("#print").addEventListener("click", () => window.print());
   renderFindings();
+}
+
+const SC_COLOR = { safe: "var(--ok)", review: "var(--low)", unsafe: "var(--high)", "n/a": "var(--faint)" };
+const SC_LABEL = { safe: "SAFE", review: "REVIEW", unsafe: "UNSAFE", "n/a": "N/A" };
+
+function renderScorecard(sc) {
+  if (!sc || !sc.controls || !sc.controls.length) return "";
+  const rows = sc.controls.map((c) => {
+    const col = SC_COLOR[c.status] || "var(--faint)";
+    const cls = c.status === "n/a" ? "na" : c.status;
+    const scoreTxt = c.score === null ? "—" : `${c.score}/100`;
+    const bar = c.score === null ? ""
+      : `<div class="sc-bar"><span style="width:${c.score}%;background:${col}"></span></div>`;
+    return `<div class="sc-row">
+      <div class="sc-status st-${cls}"><span class="sc-dot" style="background:${col}"></span>${SC_LABEL[c.status]}</div>
+      <div class="sc-main"><div class="sc-title">${escapeHtml(c.title)}</div>
+        <div class="sc-sum">${escapeHtml(c.summary)}</div></div>
+      <div class="sc-score">${scoreTxt}${bar}</div>
+    </div>`;
+  }).join("");
+  return `<div class="scorecard">${rows}</div>`;
 }
 
 function syncFilterUI() {
@@ -389,18 +445,47 @@ function renderFindings() {
       </div>
       <div class="cat">${escapeHtml(f.category)} · ${escapeHtml(f.id)}</div>
       <p>${escapeHtml(f.description)}</p>
+      ${f.page ? `<div class="evidence"><span class="label">Page</span><code>${escapeHtml(f.page)}</code></div>` : ""}
       ${f.evidence ? `<div class="evidence"><span class="label">Evidence</span><code>${escapeHtml(f.evidence)}</code></div>` : ""}
       <div class="fix"><b>Recommended fix</b>${escapeHtml(f.recommendation)}</div>
     </article>`).join("");
 }
 
-function downloadJson() {
-  const blob = new Blob([JSON.stringify(current, null, 2)], { type: "application/json" });
+function _safeName(ext) {
+  return `security-report-${(current.host || "scan").replace(/[^a-z0-9.-]/gi, "_")}.${ext}`;
+}
+
+function _download(blob, filename) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `security-report-${(current.host || "scan").replace(/[^a-z0-9.-]/gi, "_")}.json`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function downloadJson() {
+  _download(new Blob([JSON.stringify(current, null, 2)], { type: "application/json" }), _safeName("json"));
+}
+
+async function downloadReport() {
+  const btn = $("#dlReport");
+  const label = btn.textContent;
+  btn.textContent = "Generating…";
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload: current }),
+    });
+    const html = await res.text();
+    _download(new Blob([html], { type: "text/html" }), _safeName("html"));
+  } catch (e) {
+    alert("Could not generate the HTML report.");
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
 }
 
 function escapeHtml(s) {

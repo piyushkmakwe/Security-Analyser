@@ -42,6 +42,7 @@ class Finding:
     description: str
     recommendation: str
     evidence: str = ""
+    page: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         return {
@@ -52,6 +53,7 @@ class Finding:
             "description": self.description,
             "recommendation": self.recommendation,
             "evidence": self.evidence,
+            "page": self.page,
         }
 
 
@@ -136,6 +138,9 @@ class ScanContext:
     # Result of probing http:// for a redirect to https://.
     http_redirects_to_https: Optional[bool] = None
     http_reachable_plaintext: Optional[bool] = None
+    # Set by the crawler / path prober.
+    pages_scanned: int = 1
+    paths_probed: bool = False
 
     @property
     def is_https(self) -> bool:
