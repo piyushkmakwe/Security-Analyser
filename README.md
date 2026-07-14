@@ -25,8 +25,15 @@ It fetches your site and inspects:
   Stripe, GitHub, Slack, JWTs, generic `api_key = "…"`). Matches are
   **redacted** in the report so it never leaks the secret itself.
 - **Exposed sensitive paths** (optional) — probes for `/.git/`, `/.env`,
-  database/backup dumps, `server-status`, `phpinfo`, `.DS_Store`, and whether a
-  `security.txt` policy is published.
+  database/backup dumps, `server-status`, `phpinfo`, `.DS_Store`, directory
+  listing, and whether `security.txt` / `mta-sts` policies are published.
+- **DNS & email** (optional) — checks SPF, DMARC and CAA records for the domain
+  (email-spoofing and certificate-issuance protection), via a built-in DNS
+  resolver (no dependencies).
+- **Active probes** (optional, opt-in) — sends crafted requests to detect
+  **open redirects** and **reflected input** (a signal of reflected XSS).
+- **Outdated components** — heuristic flag when disclosed software versions
+  (Server / X-Powered-By / jQuery) are end-of-life and likely to carry CVEs.
 
 It can scan just the entry URL, or **crawl multiple same-origin pages** so
 content and secret checks cover more than the home page.
@@ -106,6 +113,12 @@ Options:
 | `--max-pages N` | Crawl up to N same-origin pages, scanning each for content issues (default `1` = only the given URL). |
 | `--depth N` | Maximum link depth to follow while crawling (default `1`). |
 | `--probe-paths` | Probe for exposed sensitive files: `/.git/`, `/.env`, backups, `server-status`, `security.txt`, etc. |
+| `--dns` | Check SPF, DMARC and CAA DNS records for the domain. |
+| `--active` | Run active probes (open redirect, reflected input). **Only on sites you own.** |
+| `--header NAME:VALUE` | Extra request header for authenticated scans (repeatable). |
+| `--cookie "a=1; b=2"` | Cookie header to send for authenticated scans. |
+| `--respect-robots` | Honour `robots.txt` Disallow rules while crawling. |
+| `--delay SECONDS` | Wait between page fetches while crawling (politeness). |
 
 ### Scanning more than the home page
 

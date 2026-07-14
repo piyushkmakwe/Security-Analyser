@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.error
+from typing import Optional
 from urllib.parse import urlparse
 
 from security_analyser import fetch
@@ -10,7 +11,14 @@ from security_analyser.checks import run_checks
 from security_analyser.model import ScanContext, ScanResult
 
 
-def scan(url: str, timeout: float = fetch.DEFAULT_TIMEOUT, verify_tls: bool = True) -> ScanResult:
+def scan(
+    url: str,
+    timeout: float = fetch.DEFAULT_TIMEOUT,
+    verify_tls: bool = True,
+    extra_headers: Optional[dict] = None,
+    dns_checks_enabled: bool = False,
+    active_checks_enabled: bool = False,
+) -> ScanResult:
     """Scan ``url`` and return a :class:`ScanResult`.
 
     Network errors are captured on the context (``reachable=False``) rather than
@@ -21,8 +29,9 @@ def scan(url: str, timeout: float = fetch.DEFAULT_TIMEOUT, verify_tls: bool = Tr
     host = parsed.hostname or ""
 
     try:
-        status, final_url, headers, cookies, body = fetch.fetch(
-            normalized, timeout=timeout, verify_tls=verify_tls
+        status, final_url, headers, cookies, body, chain = fetch.fetch(
+            normalized, timeout=timeout, verify_tls=verify_tls,
+            extra_headers=extra_headers,
         )
     except (urllib.error.URLError, OSError, ValueError) as exc:
         ctx = ScanContext(
@@ -61,7 +70,19 @@ def scan(url: str, timeout: float = fetch.DEFAULT_TIMEOUT, verify_tls: bool = Tr
         tls=tls,
         http_redirects_to_https=redirects_to_https,
         http_reachable_plaintext=plaintext_reachable,
+        redirect_chain=chain,
     )
 
     findings = run_checks(ctx)
+
+    if dns_checks_enabled:
+        from security_analyser.dns_checks import check_dns
+        ctx.dns_checked = True
+        findings.extend(check_dns(final_host, timeout=timeout))
+
+    if active_checks_enabled:
+        from security_analyser.active_checks import run_active_checks
+        ctx.active_checked = True
+        findings.extend(run_active_checks(final_url, timeout=timeout, verify_tls=verify_tls))
+
     return ScanResult(context=ctx, findings=findings)

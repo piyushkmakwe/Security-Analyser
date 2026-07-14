@@ -86,6 +86,7 @@ def check_hsts(ctx: ScanContext) -> List[Finding]:
             )
         ]
     findings: List[Finding] = []
+    lowered = hsts.lower()
     max_age = _hsts_max_age(hsts)
     if max_age is not None and max_age < 15552000:  # < 180 days
         findings.append(
@@ -99,6 +100,37 @@ def check_hsts(ctx: ScanContext) -> List[Finding]:
                     "protocol-downgrade attacks."
                 ),
                 recommendation="Use a max-age of at least 31536000 (one year).",
+                evidence=f"Strict-Transport-Security: {hsts}",
+            )
+        )
+    if "includesubdomains" not in lowered:
+        findings.append(
+            Finding(
+                id="HDR-HSTS-SUBDOMAINS",
+                title="HSTS does not cover subdomains",
+                severity=Severity.LOW,
+                category="Security headers",
+                description=(
+                    "Without 'includeSubDomains', subdomains are not protected by "
+                    "HSTS and can still be reached over plain HTTP."
+                ),
+                recommendation="Add 'includeSubDomains' to the HSTS header once all "
+                "subdomains support HTTPS.",
+                evidence=f"Strict-Transport-Security: {hsts}",
+            )
+        )
+    elif "preload" not in lowered and (max_age or 0) >= 31536000:
+        findings.append(
+            Finding(
+                id="HDR-HSTS-PRELOAD",
+                title="HSTS is preload-eligible but not marked 'preload'",
+                severity=Severity.INFO,
+                category="Security headers",
+                description=(
+                    "The HSTS policy meets preload requirements but lacks the "
+                    "'preload' token, so browsers will not ship it pre-trusted."
+                ),
+                recommendation="Add 'preload' and submit the domain at hstspreload.org.",
                 evidence=f"Strict-Transport-Security: {hsts}",
             )
         )
@@ -158,7 +190,68 @@ def check_csp(ctx: ScanContext) -> List[Finding]:
                 evidence=f"Content-Security-Policy: {csp}",
             )
         )
+    directives = _csp_directives(csp)
+    default_src = directives.get("default-src", "")
+    # Wildcard sources in script/default weaken the policy substantially.
+    if any(src.strip() == "*" for src in (directives.get("script-src") or default_src).split()):
+        findings.append(
+            Finding(
+                id="HDR-CSP-WILDCARD",
+                title="Content-Security-Policy uses a wildcard script source",
+                severity=Severity.LOW,
+                category="Security headers",
+                description=(
+                    "A '*' source allows scripts to load from any origin, largely "
+                    "defeating the policy's XSS protection."
+                ),
+                recommendation="Replace '*' with an explicit allow-list of trusted origins.",
+                evidence=f"Content-Security-Policy: {csp}",
+            )
+        )
+    if "http:" in lowered:
+        findings.append(
+            Finding(
+                id="HDR-CSP-HTTP",
+                title="Content-Security-Policy allows insecure http: sources",
+                severity=Severity.LOW,
+                category="Security headers",
+                description=(
+                    "The policy permits resources over plain 'http:', which can be "
+                    "tampered with in transit."
+                ),
+                recommendation="Use 'https:' sources only in the CSP.",
+                evidence=f"Content-Security-Policy: {csp}",
+            )
+        )
+    # object-src/base-uri are NOT covered by default-src, so check explicitly.
+    missing = [d for d in ("object-src", "base-uri") if d not in directives]
+    if missing:
+        findings.append(
+            Finding(
+                id="HDR-CSP-DIRECTIVES",
+                title=f"Content-Security-Policy missing {', '.join(missing)}",
+                severity=Severity.INFO,
+                category="Security headers",
+                description=(
+                    "'object-src' and 'base-uri' are not governed by 'default-src'. "
+                    "Omitting them leaves plugin and <base> injection vectors open."
+                ),
+                recommendation="Add \"object-src 'none'\" and \"base-uri 'self'\" to the policy.",
+                evidence=f"Content-Security-Policy: {csp}",
+            )
+        )
     return findings
+
+
+def _csp_directives(csp: str) -> dict:
+    result = {}
+    for part in csp.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        name, _, value = part.partition(" ")
+        result[name.strip().lower()] = value.strip().lower()
+    return result
 
 
 def check_frame_options(ctx: ScanContext) -> List[Finding]:
@@ -294,6 +387,164 @@ def check_cookies(ctx: ScanContext) -> List[Finding]:
                     ),
                     recommendation="Set 'SameSite=Lax' (or 'Strict') on the cookie.",
                     evidence=cookie.raw,
+                )
+            )
+        if cookie.name.startswith("__Host-"):
+            # __Host- prefix requires Secure, Path=/, and NO Domain attribute.
+            if not cookie.secure or cookie.domain or (cookie.path or "/") != "/":
+                findings.append(
+                    Finding(
+                        id="COOKIE-HOST-PREFIX",
+                        title=f"Cookie '{label}' violates its __Host- prefix rules",
+                        severity=Severity.LOW,
+                        category="Cookies",
+                        description=(
+                            "A '__Host-' cookie must be Secure, have Path=/, and set "
+                            "no Domain. This one does not, so browsers reject the "
+                            "guarantee the prefix is meant to provide."
+                        ),
+                        recommendation="Set Secure and Path=/ and remove the Domain attribute.",
+                        evidence=cookie.raw,
+                    )
+                )
+        elif cookie.name.startswith("__Secure-") and not cookie.secure:
+            findings.append(
+                Finding(
+                    id="COOKIE-SECURE-PREFIX",
+                    title=f"Cookie '{label}' has __Secure- prefix without Secure",
+                    severity=Severity.LOW,
+                    category="Cookies",
+                    description=(
+                        "A '__Secure-' cookie must carry the Secure attribute; without "
+                        "it browsers reject the cookie."
+                    ),
+                    recommendation="Set the 'Secure' attribute on the cookie.",
+                    evidence=cookie.raw,
+                )
+            )
+        if cookie.domain and cookie.domain.startswith("."):
+            findings.append(
+                Finding(
+                    id="COOKIE-DOMAIN-SCOPE",
+                    title=f"Cookie '{label}' is scoped to a wildcard parent domain",
+                    severity=Severity.INFO,
+                    category="Cookies",
+                    description=(
+                        "A leading-dot Domain shares the cookie with every subdomain, "
+                        "widening its exposure. Prefer host-only cookies where possible."
+                    ),
+                    recommendation="Drop the Domain attribute unless subdomains truly need the cookie.",
+                    evidence=cookie.raw,
+                )
+            )
+    return findings
+
+
+def check_cache_control(ctx: ScanContext) -> List[Finding]:
+    """Flag pages that set a session cookie but allow caching of the response."""
+    if not ctx.cookies:
+        return []
+    cache = (ctx.headers.get("Cache-Control") or "").lower()
+    if "no-store" in cache or "private" in cache:
+        return []
+    return [
+        Finding(
+            id="HDR-CACHE-SESSION",
+            title="Response sets a cookie but is cacheable",
+            severity=Severity.LOW,
+            category="Security headers",
+            description=(
+                "The response sets cookies without 'Cache-Control: no-store' (or "
+                "'private'). Shared caches or the browser may store authenticated "
+                "content and serve it to another user."
+            ),
+            recommendation="Send 'Cache-Control: no-store' on responses that set session cookies.",
+            evidence=f"Cache-Control: {ctx.headers.get('Cache-Control') or '(absent)'}",
+        )
+    ]
+
+
+def check_redirect_hygiene(ctx: ScanContext) -> List[Finding]:
+    """Flag redirect chains that pass through cleartext http://."""
+    chain = ctx.redirect_chain or []
+    if len(chain) < 2:
+        return []
+    # Ignore the first hop if the user typed http:// themselves; flag any http
+    # hop that occurs *after* an https hop (a downgrade in the chain).
+    seen_https = False
+    downgrade = False
+    for url in chain:
+        if url.lower().startswith("https://"):
+            seen_https = True
+        elif url.lower().startswith("http://") and seen_https:
+            downgrade = True
+    if not downgrade:
+        return []
+    return [
+        Finding(
+            id="HDR-REDIRECT-DOWNGRADE",
+            title="Redirect chain drops back to plain HTTP",
+            severity=Severity.MEDIUM,
+            category="Transport security",
+            description=(
+                "The redirect chain moves from HTTPS back to HTTP at some point, "
+                "exposing the request to interception during that hop."
+            ),
+            recommendation="Ensure every redirect target uses https:// end to end.",
+            evidence=" -> ".join(chain[:5]),
+        )
+    ]
+
+
+# Known-old version signatures -> a heuristic "review for CVEs" hint. This is a
+# lightweight signal, NOT a live CVE feed.
+_OUTDATED_SIGNATURES = [
+    ("openssl/1.0", "OpenSSL 1.0.x is end-of-life and has known CVEs."),
+    ("php/5.", "PHP 5.x is end-of-life."),
+    ("php/7.0", "PHP 7.0 is end-of-life."),
+    ("php/7.1", "PHP 7.1 is end-of-life."),
+    ("php/7.2", "PHP 7.2 is end-of-life."),
+    ("apache/2.2", "Apache httpd 2.2 is end-of-life."),
+    ("nginx/1.0", "This nginx release line is very old."),
+    ("nginx/1.1", "This nginx release line is very old."),
+    ("openssh_5", "OpenSSH 5.x is very old."),
+    ("openssh_6", "OpenSSH 6.x is very old."),
+    ("jquery/1.", "jQuery 1.x has known XSS CVEs; upgrade to 3.x."),
+    ("jquery/2.", "jQuery 2.x is unmaintained; upgrade to 3.x."),
+]
+
+
+def check_outdated_versions(ctx: ScanContext) -> List[Finding]:
+    """Heuristic: flag disclosed software versions that are known to be old."""
+    haystack = " ".join(
+        v for v in (
+            ctx.headers.get("Server"),
+            ctx.headers.get("X-Powered-By"),
+            ctx.headers.get("X-AspNet-Version"),
+        ) if v
+    ).lower()
+    # jQuery version often appears in script URLs in the body.
+    body_l = (ctx.body or "").lower()
+    findings: List[Finding] = []
+    seen = set()
+    for needle, note in _OUTDATED_SIGNATURES:
+        hit = needle in haystack or (needle.startswith("jquery") and needle.replace("/", "-") in body_l) \
+            or (needle.startswith("jquery") and needle in body_l)
+        if hit and needle not in seen:
+            seen.add(needle)
+            findings.append(
+                Finding(
+                    id="VERSION-OUTDATED",
+                    title="Outdated software version disclosed",
+                    severity=Severity.MEDIUM,
+                    category="Outdated components",
+                    description=(
+                        f"{note} Outdated components frequently carry publicly known "
+                        "vulnerabilities (CVEs). This is a heuristic signal — verify "
+                        "the exact version and its advisories."
+                    ),
+                    recommendation="Upgrade to a supported version and re-check advisories.",
+                    evidence=note,
                 )
             )
     return findings
@@ -463,7 +714,10 @@ ALL_CHECKS: List[Check] = [
     check_referrer_policy,
     check_permissions_policy,
     check_cookies,
+    check_cache_control,
+    check_redirect_hygiene,
     check_information_disclosure,
+    check_outdated_versions,
     check_cors,
     *CONTENT_CHECKS,
 ]

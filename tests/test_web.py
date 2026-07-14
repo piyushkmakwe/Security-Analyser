@@ -97,7 +97,7 @@ def test_static_index_is_packaged():
 def test_timeout_is_clamped(monkeypatch):
     captured = {}
 
-    def fake_scan(url, timeout, verify_tls):
+    def fake_scan(url, timeout, verify_tls, **kwargs):
         captured["timeout"] = timeout
         return _result([])
 

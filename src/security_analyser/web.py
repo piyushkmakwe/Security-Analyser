@@ -59,17 +59,24 @@ def run_scan_request(payload: dict) -> Tuple[int, dict]:
     max_pages = max(1, min(max_pages, 25))
     depth = max(1, min(depth, 3))
     probe = bool(payload.get("probe_paths", False))
+    dns = bool(payload.get("dns", False))
+    active = bool(payload.get("active", False))
+    respect_robots = bool(payload.get("respect_robots", False))
+    extra_headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else None
 
     try:
-        if max_pages > 1 or depth > 1 or probe:
+        if max_pages > 1 or depth > 1 or probe or dns or active or respect_robots:
             from security_analyser.crawler import crawl
 
             result = crawl(
                 url, max_pages=max_pages, depth=depth, timeout=timeout,
                 verify_tls=verify_tls, probe_paths_enabled=probe,
+                extra_headers=extra_headers, respect_robots=respect_robots,
+                dns_checks_enabled=dns, active_checks_enabled=active,
             )
         else:
-            result = scan(url, timeout=timeout, verify_tls=verify_tls)
+            result = scan(url, timeout=timeout, verify_tls=verify_tls,
+                          extra_headers=extra_headers)
     except ValueError as exc:
         return 400, {"error": str(exc)}
     return 200, result_to_payload(result)

@@ -67,6 +67,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--probe-paths", action="store_true",
         help="Probe for exposed sensitive files (.git, .env, backups, security.txt, ...).",
     )
+    scan_p.add_argument(
+        "--dns", action="store_true",
+        help="Check DNS/email records (SPF, DMARC, CAA) for the domain.",
+    )
+    scan_p.add_argument(
+        "--active", action="store_true",
+        help="Run active probes (open redirect, reflected input). Only on sites you own.",
+    )
+    scan_p.add_argument(
+        "--header", action="append", metavar="NAME:VALUE", default=[],
+        help="Extra request header for authenticated scans (repeatable).",
+    )
+    scan_p.add_argument(
+        "--cookie", metavar="COOKIES",
+        help="Cookie header value to send for authenticated scans.",
+    )
+    scan_p.add_argument(
+        "--respect-robots", action="store_true",
+        help="Honour robots.txt Disallow rules while crawling.",
+    )
+    scan_p.add_argument(
+        "--delay", type=float, default=0.0,
+        help="Seconds to wait between page fetches while crawling (politeness).",
+    )
 
     serve_p = subparsers.add_parser("serve", help="Launch the web UI.")
     serve_p.add_argument(
@@ -90,17 +114,36 @@ def _threshold_rank(name: str) -> int:
     return Severity.HIGH.rank
 
 
+def _build_headers(args: argparse.Namespace) -> dict:
+    headers = {}
+    for item in args.header or []:
+        name, _, value = item.partition(":")
+        if name.strip():
+            headers[name.strip()] = value.strip()
+    if args.cookie:
+        headers["Cookie"] = args.cookie
+    return headers
+
+
 def _run_scan(args: argparse.Namespace) -> int:
-    if args.max_pages > 1 or args.depth > 1 or args.probe_paths:
+    extra_headers = _build_headers(args) or None
+    verify_tls = not args.insecure
+    crawling = args.max_pages > 1 or args.depth > 1 or args.probe_paths or args.respect_robots
+    if crawling or args.dns or args.active:
         from security_analyser.crawler import crawl
 
         result = crawl(
             args.url, max_pages=args.max_pages, depth=args.depth,
-            timeout=args.timeout, verify_tls=not args.insecure,
-            probe_paths_enabled=args.probe_paths,
+            timeout=args.timeout, verify_tls=verify_tls,
+            probe_paths_enabled=args.probe_paths, extra_headers=extra_headers,
+            respect_robots=args.respect_robots, delay=args.delay,
+            dns_checks_enabled=args.dns, active_checks_enabled=args.active,
         )
     else:
-        result = scan(args.url, timeout=args.timeout, verify_tls=not args.insecure)
+        result = scan(
+            args.url, timeout=args.timeout, verify_tls=verify_tls,
+            extra_headers=extra_headers,
+        )
     output = render(result, fmt=args.format)
 
     if args.output:

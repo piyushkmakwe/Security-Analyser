@@ -52,6 +52,10 @@ def parse_cookie(raw: str) -> Cookie:
             cookie.http_only = True
         elif key == "samesite":
             cookie.same_site = value.strip() or None
+        elif key == "domain":
+            cookie.domain = value.strip() or None
+        elif key == "path":
+            cookie.path = value.strip() or None
     return cookie
 
 
@@ -73,11 +77,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _request_headers(extra_headers: Optional[dict]) -> dict:
+    merged = {"User-Agent": USER_AGENT}
+    if extra_headers:
+        merged.update(extra_headers)
+    return merged
+
+
 def fetch(
-    url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True
-) -> Tuple[int, str, Headers, List[Cookie], str]:
+    url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True,
+    extra_headers: Optional[dict] = None,
+) -> Tuple[int, str, Headers, List[Cookie], str, List[str]]:
     """Fetch ``url`` (following redirects) and return status, final URL,
-    headers, cookies and a size-limited response body (decoded as text).
+    headers, cookies, a size-limited response body, and the redirect chain.
+    ``extra_headers`` are merged into the request (for authenticated scans).
     Raises ``urllib.error.URLError`` on failure."""
     context = ssl.create_default_context()
     if not verify_tls:
@@ -88,7 +101,7 @@ def fetch(
     opener = urllib.request.build_opener(
         handler, urllib.request.HTTPSHandler(context=context)
     )
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers=_request_headers(extra_headers))
 
     try:
         response = opener.open(request, timeout=timeout)
@@ -113,7 +126,8 @@ def fetch(
             response.close()
         except Exception:  # pragma: no cover
             pass
-    return int(status), final_url, headers, cookies, body
+    chain = [url] + handler.chain
+    return int(status), final_url, headers, cookies, body, chain
 
 
 def probe_path(
