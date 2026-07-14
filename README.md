@@ -24,6 +24,12 @@ It fetches your site and inspects:
   HTML/JavaScript for exposed API keys, tokens, and private keys (AWS, Google,
   Stripe, GitHub, Slack, JWTs, generic `api_key = "…"`). Matches are
   **redacted** in the report so it never leaks the secret itself.
+- **Exposed sensitive paths** (optional) — probes for `/.git/`, `/.env`,
+  database/backup dumps, `server-status`, `phpinfo`, `.DS_Store`, and whether a
+  `security.txt` policy is published.
+
+It can scan just the entry URL, or **crawl multiple same-origin pages** so
+content and secret checks cover more than the home page.
 
 Each issue is reported as a **finding** with a severity
 (`critical` → `info`), an explanation, supporting evidence, and a concrete
@@ -97,6 +103,21 @@ Options:
 | `--timeout SECONDS` | Network timeout (default 15). |
 | `--insecure` | Don't verify the TLS certificate when fetching (still reported as a finding). |
 | `--fail-on {critical,high,medium,low,info}` | Exit non-zero when a finding at this severity or higher exists (default `high`). Handy for CI gates. |
+| `--max-pages N` | Crawl up to N same-origin pages, scanning each for content issues (default `1` = only the given URL). |
+| `--depth N` | Maximum link depth to follow while crawling (default `1`). |
+| `--probe-paths` | Probe for exposed sensitive files: `/.git/`, `/.env`, backups, `server-status`, `security.txt`, etc. |
+
+### Scanning more than the home page
+
+```bash
+# Crawl up to 20 same-origin pages and probe for exposed files
+security-analyser scan https://your-website.com --max-pages 20 --probe-paths
+```
+
+Content checks (secrets, mixed content, SRI, insecure forms) run on **every**
+crawled page, and each finding is attributed to the page it was found on.
+Header/TLS/cookie checks run on the entry page. In the web UI, use the
+**Crawl pages** and **Probe sensitive paths** toggles.
 
 ### Exit codes
 
@@ -137,6 +158,10 @@ src/security_analyser/
 ├── model.py        # Finding, Severity, Cookie, TlsInfo, ScanContext, ScanResult
 ├── fetch.py        # network layer: fetch, cookie parsing, TLS inspection
 ├── checks.py       # the security checks (one function per rule)
+├── content_checks.py # per-page content checks (mixed content, SRI, secrets)
+├── crawler.py      # multi-page same-origin crawling + aggregation
+├── paths.py        # sensitive-path probing (.git, .env, backups, ...)
+├── audit.py        # scorecard: per-control verdict + scores
 ├── scanner.py      # orchestration: fetch -> context -> run checks
 ├── report.py       # text / JSON / HTML renderers + shared payload builder
 ├── web.py          # stdlib web server + /api/scan endpoint

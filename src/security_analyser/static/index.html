@@ -232,6 +232,15 @@
         <span class="switch"><input type="checkbox" id="verifyTls" checked><span class="slider"></span></span>
         Verify TLS certificate
       </label>
+      <label title="Follow same-origin links and scan multiple pages">
+        <span class="switch"><input type="checkbox" id="crawl"><span class="slider"></span></span>
+        Crawl pages
+      </label>
+      <label title="Max pages to scan when crawling">Max <input type="number" id="maxPages" value="10" min="1" max="25"></label>
+      <label title="Probe for exposed files like .git, .env, backups">
+        <span class="switch"><input type="checkbox" id="probePaths"><span class="slider"></span></span>
+        Probe sensitive paths
+      </label>
       <label>Timeout <input type="number" id="timeout" value="15" min="1" max="120"> s</label>
     </div>
     <div class="example-links">
@@ -291,6 +300,8 @@ $("#scanForm").addEventListener("submit", async (e) => {
         url,
         verify_tls: $("#verifyTls").checked,
         timeout: Number($("#timeout").value) || 15,
+        max_pages: $("#crawl").checked ? (Number($("#maxPages").value) || 10) : 1,
+        probe_paths: $("#probePaths").checked,
       }),
     });
     const data = await res.json();
@@ -352,6 +363,7 @@ function renderResults(d) {
           <span>Score <b class="score-big">${d.score ?? "—"}/100</b></span>
           <span>Status <b>${d.status_code ?? "—"}</b></span>
           ${tlsRow}
+          ${d.pages_scanned > 1 ? `<span>Pages <b>${d.pages_scanned}</b></span>` : ""}
           <span><b>${d.total_findings}</b> issue${d.total_findings === 1 ? "" : "s"} found</span>
         </div>
       </div>
@@ -433,6 +445,7 @@ function renderFindings() {
       </div>
       <div class="cat">${escapeHtml(f.category)} · ${escapeHtml(f.id)}</div>
       <p>${escapeHtml(f.description)}</p>
+      ${f.page ? `<div class="evidence"><span class="label">Page</span><code>${escapeHtml(f.page)}</code></div>` : ""}
       ${f.evidence ? `<div class="evidence"><span class="label">Evidence</span><code>${escapeHtml(f.evidence)}</code></div>` : ""}
       <div class="fix"><b>Recommended fix</b>${escapeHtml(f.recommendation)}</div>
     </article>`).join("");

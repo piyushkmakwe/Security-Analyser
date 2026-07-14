@@ -64,6 +64,8 @@ def result_to_payload(result: ScanResult) -> Dict[str, object]:
         "error": ctx.error,
         "status_code": ctx.status_code,
         "tls": ctx.tls.to_dict() if ctx.tls else None,
+        "pages_scanned": ctx.pages_scanned,
+        "paths_probed": ctx.paths_probed,
         "summary": result.counts(),
         "total_findings": len(result.findings),
         "grade": grade(result),
@@ -102,6 +104,9 @@ def render_text(result: ScanResult) -> str:
         expiry = "" if not tls["days_to_expiry"] else f", expires in {tls['days_to_expiry']}d"
         lines.append(f"TLS         : {tls['protocol'] or 'n/a'} [{state}]{expiry}")
 
+    if payload.get("pages_scanned", 1) > 1:
+        lines.append(f"Pages scanned : {payload['pages_scanned']}")
+
     lines.append("")
     lines.append(f"OVERALL SCORE : {payload['score']}/100   (grade {payload['grade']})")
     counts = payload["summary"]
@@ -131,6 +136,8 @@ def render_text(result: ScanResult) -> str:
     for i, f in enumerate(findings, 1):
         lines.append(f"[{i}] {f['severity'].upper():8} {f['title']}")
         lines.append(f"    Category : {f['category']}  (id: {f['id']})")
+        if f.get("page"):
+            lines.append(f"    Page     : {f['page']}")
         lines.append(f"    Issue    : {f['description']}")
         if f["evidence"]:
             lines.append(f"    Evidence : {f['evidence']}")
@@ -187,11 +194,14 @@ def render_html_payload(payload: dict) -> str:
         exp = tls.get("days_to_expiry")
         expiry = f" (expires in {exp} days)" if exp else ""
         tls_row = f"<tr><th>TLS</th><td>{e(str(tls.get('protocol') or 'n/a'))} &mdash; {e(state)}{e(expiry)}</td></tr>"
+    pages = payload.get("pages_scanned", 1)
+    pages_row = f"<tr><th>Pages scanned</th><td>{e(str(pages))}</td></tr>" if pages and pages > 1 else ""
     meta = (
         "<table class='meta'>"
         f"<tr><th>Target</th><td>{target}</td></tr>"
         f"<tr><th>Final URL</th><td>{e(str(payload.get('final_url', '')))}</td></tr>"
         f"<tr><th>HTTP status</th><td>{e(str(payload.get('status_code')))}</td></tr>"
+        f"{pages_row}"
         f"{tls_row}"
         f"<tr><th>Scanned at</th><td>{e(str(payload.get('scanned_at', '')))}</td></tr>"
         "</table>"
@@ -225,12 +235,16 @@ def render_html_payload(payload: dict) -> str:
                 f'<div class="evidence"><span>Evidence</span><code>{e(f["evidence"])}</code></div>'
                 if f["evidence"] else ""
             )
+            page = (
+                f'<div class="evidence"><span>Page</span><code>{e(f["page"])}</code></div>'
+                if f.get("page") else ""
+            )
             items.append(
                 f'<article class="finding sev-{sev}">'
                 f'<div class="fh"><span class="badge sev-{sev}">{sev.upper()}</span>'
                 f'<h3>{e(f["title"])}</h3></div>'
                 f'<div class="meta2">{e(f["category"])} &middot; {e(f["id"])}</div>'
-                f'<p>{e(f["description"])}</p>{evidence}'
+                f'<p>{e(f["description"])}</p>{page}{evidence}'
                 f'<div class="fix"><span>Recommended fix</span><p>{e(f["recommendation"])}</p></div>'
                 f"</article>"
             )

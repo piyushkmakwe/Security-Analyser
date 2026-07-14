@@ -89,6 +89,11 @@ CONTROLS: List[Control] = [
     Control("secrets", "Secret exposure", "Secret exposure", 17,
             "No API keys or credentials found in page source.",
             _prefix("SECRET-")),
+    Control("paths", "Sensitive paths & files", "Exposed paths", 8,
+            "No exposed .git/.env/backups; security.txt published.",
+            _prefix("PATH-"),
+            na_text="Path probing was not run (enable it to check).",
+            applies=lambda ctx: getattr(ctx, "paths_probed", False)),
 ]
 
 

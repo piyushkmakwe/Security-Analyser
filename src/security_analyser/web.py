@@ -52,7 +52,24 @@ def run_scan_request(payload: dict) -> Tuple[int, dict]:
     verify_tls = bool(payload.get("verify_tls", True))
 
     try:
-        result = scan(url, timeout=timeout, verify_tls=verify_tls)
+        max_pages = int(payload.get("max_pages") or 1)
+        depth = int(payload.get("depth") or 1)
+    except (TypeError, ValueError):
+        return 400, {"error": "'max_pages' and 'depth' must be numbers."}
+    max_pages = max(1, min(max_pages, 25))
+    depth = max(1, min(depth, 3))
+    probe = bool(payload.get("probe_paths", False))
+
+    try:
+        if max_pages > 1 or depth > 1 or probe:
+            from security_analyser.crawler import crawl
+
+            result = crawl(
+                url, max_pages=max_pages, depth=depth, timeout=timeout,
+                verify_tls=verify_tls, probe_paths_enabled=probe,
+            )
+        else:
+            result = scan(url, timeout=timeout, verify_tls=verify_tls)
     except ValueError as exc:
         return 400, {"error": str(exc)}
     return 200, result_to_payload(result)

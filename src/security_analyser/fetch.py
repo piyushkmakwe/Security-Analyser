@@ -116,6 +116,42 @@ def fetch(
     return int(status), final_url, headers, cookies, body
 
 
+def probe_path(
+    url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True
+) -> Optional[Tuple[int, str, str]]:
+    """Fetch ``url`` without following redirects for path probing.
+
+    Returns ``(status, content_type, body_snippet)`` or ``None`` on a network
+    error. Only a small prefix of the body is read.
+    """
+    context = ssl.create_default_context()
+    if not verify_tls:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    opener = urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=context)
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        response = opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        ctype = exc.headers.get("Content-Type", "") if exc.headers else ""
+        return exc.code, ctype, ""
+    except (urllib.error.URLError, socket.error, ssl.SSLError, OSError):
+        return None
+    try:
+        ctype = response.headers.get("Content-Type", "")
+        body = response.read(4096).decode("utf-8", errors="replace")
+    except Exception:  # pragma: no cover - best effort
+        ctype, body = "", ""
+    finally:
+        try:
+            response.close()
+        except Exception:  # pragma: no cover
+            pass
+    return int(getattr(response, "status", 200)), ctype, body
+
+
 def probe_http_redirect(
     host: str, timeout: float = DEFAULT_TIMEOUT
 ) -> Tuple[Optional[bool], Optional[bool]]:

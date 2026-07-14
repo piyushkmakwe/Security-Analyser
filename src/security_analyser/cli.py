@@ -55,6 +55,18 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: high). Use 'critical'..'info'."
         ),
     )
+    scan_p.add_argument(
+        "--max-pages", type=int, default=1,
+        help="Crawl up to N same-origin pages (default: 1, only the given URL).",
+    )
+    scan_p.add_argument(
+        "--depth", type=int, default=1,
+        help="Maximum link depth to follow when crawling (default: 1).",
+    )
+    scan_p.add_argument(
+        "--probe-paths", action="store_true",
+        help="Probe for exposed sensitive files (.git, .env, backups, security.txt, ...).",
+    )
 
     serve_p = subparsers.add_parser("serve", help="Launch the web UI.")
     serve_p.add_argument(
@@ -79,7 +91,16 @@ def _threshold_rank(name: str) -> int:
 
 
 def _run_scan(args: argparse.Namespace) -> int:
-    result = scan(args.url, timeout=args.timeout, verify_tls=not args.insecure)
+    if args.max_pages > 1 or args.depth > 1 or args.probe_paths:
+        from security_analyser.crawler import crawl
+
+        result = crawl(
+            args.url, max_pages=args.max_pages, depth=args.depth,
+            timeout=args.timeout, verify_tls=not args.insecure,
+            probe_paths_enabled=args.probe_paths,
+        )
+    else:
+        result = scan(args.url, timeout=args.timeout, verify_tls=not args.insecure)
     output = render(result, fmt=args.format)
 
     if args.output:
