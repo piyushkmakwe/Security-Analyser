@@ -29,6 +29,11 @@ Each issue is reported as a **finding** with a severity
 (`critical` → `info`), an explanation, supporting evidence, and a concrete
 recommendation.
 
+Every scan also produces a **scorecard**: a full checklist of *all* controls —
+not just the failing ones — with a **safe / review / unsafe** verdict and a
+score (0–100) per check, plus a weighted **overall score** and letter grade.
+Reports can be downloaded as a self-contained HTML file (or JSON).
+
 > ⚠️ **Only scan sites you own or are authorised to test.** This tool makes
 > ordinary HTTP requests to the target, but you are responsible for having
 > permission to assess it.
