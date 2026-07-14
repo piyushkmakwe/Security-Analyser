@@ -134,6 +134,45 @@ def probe_paths(
                 )
             )
 
+    # Directory listing: probe common directories for an "Index of /" page.
+    listing_dirs = []
+    for path in ("/uploads/", "/images/", "/files/", "/backup/", "/static/", "/assets/"):
+        res = probe_path(urljoin(base_url, path), timeout, verify_tls)
+        if res and res[0] == 200 and ("Index of /" in res[2] or "<title>Index of" in res[2]):
+            listing_dirs.append(path)
+    if listing_dirs:
+        findings.append(
+            Finding(
+                id="PATH-DIRLISTING",
+                title="Directory listing enabled",
+                severity=Severity.MEDIUM,
+                category="Exposed paths",
+                description=(
+                    "One or more directories return an auto-generated index, "
+                    "revealing file names an attacker can then fetch directly."
+                ),
+                recommendation="Disable automatic directory indexing (e.g. Apache 'Options -Indexes').",
+                evidence="Listing at: " + ", ".join(listing_dirs),
+            )
+        )
+
+    # MTA-STS: presence is a good practice for mail-handling domains.
+    mta = probe_path(urljoin(base_url, "/.well-known/mta-sts.txt"), timeout, verify_tls)
+    if not (mta and mta[0] == 200 and "version" in mta[2].lower()):
+        findings.append(
+            Finding(
+                id="PATH-MTASTS",
+                title="No MTA-STS policy published",
+                severity=Severity.INFO,
+                category="Exposed paths",
+                description=(
+                    "No /.well-known/mta-sts.txt was found. MTA-STS enforces TLS for "
+                    "inbound email and helps prevent mail interception/downgrade."
+                ),
+                recommendation="If this domain receives email, publish an MTA-STS policy.",
+            )
+        )
+
     # security.txt is a best-practice disclosure file: flag its absence.
     has_security_txt = False
     for path in ("/.well-known/security.txt", "/security.txt"):

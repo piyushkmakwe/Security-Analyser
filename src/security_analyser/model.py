@@ -65,6 +65,8 @@ class Cookie:
     secure: bool = False
     http_only: bool = False
     same_site: Optional[str] = None
+    domain: Optional[str] = None
+    path: Optional[str] = None
     raw: str = ""
 
 
@@ -138,9 +140,12 @@ class ScanContext:
     # Result of probing http:// for a redirect to https://.
     http_redirects_to_https: Optional[bool] = None
     http_reachable_plaintext: Optional[bool] = None
-    # Set by the crawler / path prober.
+    redirect_chain: List[str] = field(default_factory=list)
+    # Set by the crawler / path prober / optional check groups.
     pages_scanned: int = 1
     paths_probed: bool = False
+    dns_checked: bool = False
+    active_checked: bool = False
 
     @property
     def is_https(self) -> bool:

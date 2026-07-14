@@ -11,9 +11,10 @@ sensitive paths.
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections import deque
 from html.parser import HTMLParser
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urldefrag, urljoin, urlparse
 
 from security_analyser import fetch
@@ -76,6 +77,30 @@ def _run_content_checks(ctx: ScanContext) -> List[Finding]:
     return findings
 
 
+def _robots_disallow(base_url: str, timeout: float, verify_tls: bool) -> List[str]:
+    """Return Disallow path prefixes for User-agent '*' from robots.txt."""
+    try:
+        _s, _f, _h, _c, body, _ch = fetch.fetch(
+            urljoin(base_url, "/robots.txt"), timeout=timeout, verify_tls=verify_tls
+        )
+    except Exception:
+        return []
+    disallow: List[str] = []
+    applies = False
+    for line in body.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "user-agent":
+            applies = value == "*"
+        elif key == "disallow" and applies and value:
+            disallow.append(value)
+    return disallow
+
+
 def crawl(
     url: str,
     max_pages: int = 10,
@@ -83,16 +108,32 @@ def crawl(
     timeout: float = fetch.DEFAULT_TIMEOUT,
     verify_tls: bool = True,
     probe_paths_enabled: bool = False,
+    extra_headers: Optional[dict] = None,
+    respect_robots: bool = False,
+    delay: float = 0.0,
+    dns_checks_enabled: bool = False,
+    active_checks_enabled: bool = False,
 ) -> ScanResult:
     """Scan ``url`` and up to ``max_pages`` same-origin pages, plus optional
     sensitive-path probing. Returns a single aggregated :class:`ScanResult`."""
-    base = scan(url, timeout=timeout, verify_tls=verify_tls)
+    base = scan(
+        url, timeout=timeout, verify_tls=verify_tls, extra_headers=extra_headers,
+        dns_checks_enabled=dns_checks_enabled,
+        active_checks_enabled=active_checks_enabled,
+    )
     ctx = base.context
     if not ctx.reachable:
         return base
 
     start = ctx.final_url
     host = ctx.host
+    disallow = _robots_disallow(start, timeout, verify_tls) if respect_robots else []
+
+    def _allowed(link: str) -> bool:
+        if not disallow:
+            return True
+        path = urlparse(link).path or "/"
+        return not any(path.startswith(rule) for rule in disallow)
 
     # Split the start page's findings into host-level and content-level.
     host_findings: List[Finding] = []
@@ -119,16 +160,18 @@ def crawl(
     queue: deque = deque()
     if max_pages > 1:
         for link in discover_links(start, ctx.body, host):
-            if link not in visited:
+            if link not in visited and _allowed(link):
                 visited.add(link)
                 queue.append((link, 1))
 
     pages_scanned = 1
     while queue and pages_scanned < max_pages:
         page, page_depth = queue.popleft()
+        if delay:
+            time.sleep(delay)
         try:
-            status, final_url, headers, _cookies, body = fetch.fetch(
-                page, timeout=timeout, verify_tls=verify_tls
+            status, final_url, headers, _cookies, body, _chain = fetch.fetch(
+                page, timeout=timeout, verify_tls=verify_tls, extra_headers=extra_headers
             )
         except Exception:
             continue
@@ -142,7 +185,7 @@ def crawl(
             add_content(f, final_url)
         if page_depth < depth:
             for link in discover_links(final_url, body, host):
-                if link not in visited and len(visited) < max_pages * 5:
+                if link not in visited and _allowed(link) and len(visited) < max_pages * 5:
                     visited.add(link)
                     queue.append((link, page_depth + 1))
 

@@ -27,14 +27,7 @@ def ids(findings):
 
 
 def test_hardened_site_has_no_header_findings():
-    headers = {
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-        "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
-        "X-Frame-Options": "DENY",
-        "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-        "Permissions-Policy": "geolocation=()",
-    }
+    headers = _hardened_headers()
     tls = TlsInfo(host="example.com", connected=True, verified=True,
                   protocol="TLSv1.3", days_to_expiry=200)
     findings = run_checks(make_context(headers=headers, tls=tls))
@@ -116,8 +109,11 @@ def test_information_disclosure_flagged():
 
 def _hardened_headers():
     return {
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-        "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+        "Content-Security-Policy": (
+            "default-src 'self'; object-src 'none'; base-uri 'self'; "
+            "frame-ancestors 'none'"
+        ),
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",

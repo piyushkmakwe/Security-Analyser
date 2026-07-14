@@ -241,6 +241,14 @@
         <span class="switch"><input type="checkbox" id="probePaths"><span class="slider"></span></span>
         Probe sensitive paths
       </label>
+      <label title="Check SPF, DMARC and CAA DNS records for the domain">
+        <span class="switch"><input type="checkbox" id="dns"><span class="slider"></span></span>
+        DNS / email checks
+      </label>
+      <label title="Active probes (open redirect, reflected input) — only on sites you own">
+        <span class="switch"><input type="checkbox" id="active"><span class="slider"></span></span>
+        Active probes
+      </label>
       <label>Timeout <input type="number" id="timeout" value="15" min="1" max="120"> s</label>
     </div>
     <div class="example-links">
@@ -302,6 +310,8 @@ $("#scanForm").addEventListener("submit", async (e) => {
         timeout: Number($("#timeout").value) || 15,
         max_pages: $("#crawl").checked ? (Number($("#maxPages").value) || 10) : 1,
         probe_paths: $("#probePaths").checked,
+        dns: $("#dns").checked,
+        active: $("#active").checked,
       }),
     });
     const data = await res.json();

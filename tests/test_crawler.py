@@ -78,9 +78,9 @@ def test_crawl_visits_linked_pages_and_aggregates(monkeypatch):
     monkeypatch.setattr(crawler, "scan", lambda *a, **k: base)
 
     # /login serves a page exposing a secret.
-    def fake_fetch(url, timeout, verify_tls):
+    def fake_fetch(url, timeout, verify_tls, extra_headers=None):
         body = 'var k = "AKIAIOSFODNN7EXAMPLE";'
-        return 200, url, Headers(), [], body
+        return 200, url, Headers(), [], body, [url]
 
     monkeypatch.setattr(crawler.fetch, "fetch", fake_fetch)
     result = crawler.crawl("https://example.com", max_pages=5, depth=1)
