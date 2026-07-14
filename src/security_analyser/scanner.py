@@ -21,7 +21,7 @@ def scan(url: str, timeout: float = fetch.DEFAULT_TIMEOUT, verify_tls: bool = Tr
     host = parsed.hostname or ""
 
     try:
-        status, final_url, headers, cookies = fetch.fetch(
+        status, final_url, headers, cookies, body = fetch.fetch(
             normalized, timeout=timeout, verify_tls=verify_tls
         )
     except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -57,6 +57,7 @@ def scan(url: str, timeout: float = fetch.DEFAULT_TIMEOUT, verify_tls: bool = Tr
         status_code=status,
         headers=headers,
         cookies=cookies,
+        body=body,
         tls=tls,
         http_redirects_to_https=redirects_to_https,
         http_reachable_plaintext=plaintext_reachable,

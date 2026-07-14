@@ -18,6 +18,8 @@ from security_analyser.model import Cookie, Headers, TlsInfo
 
 USER_AGENT = "security-analyser/0.1 (+https://github.com/piyushkmakwe/Security-Analyser)"
 DEFAULT_TIMEOUT = 15.0
+# Cap how much of the response body we read for content checks (2 MiB).
+MAX_BODY_BYTES = 2 * 1024 * 1024
 
 
 def normalize_url(url: str) -> str:
@@ -73,9 +75,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def fetch(
     url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True
-) -> Tuple[int, str, Headers, List[Cookie]]:
+) -> Tuple[int, str, Headers, List[Cookie], str]:
     """Fetch ``url`` (following redirects) and return status, final URL,
-    headers and cookies. Raises ``urllib.error.URLError`` on failure."""
+    headers, cookies and a size-limited response body (decoded as text).
+    Raises ``urllib.error.URLError`` on failure."""
     context = ssl.create_default_context()
     if not verify_tls:
         context.check_hostname = False
@@ -99,16 +102,18 @@ def fetch(
     headers = Headers(raw_headers)
     set_cookies = response.headers.get_all("Set-Cookie") or []
     cookies = [parse_cookie(c) for c in set_cookies]
+    body = ""
     try:
-        response.read()
-    except Exception:  # pragma: no cover - body not needed
+        raw = response.read(MAX_BODY_BYTES)
+        body = raw.decode("utf-8", errors="replace")
+    except Exception:  # pragma: no cover - body is best-effort
         pass
     finally:
         try:
             response.close()
         except Exception:  # pragma: no cover
             pass
-    return int(status), final_url, headers, cookies
+    return int(status), final_url, headers, cookies, body
 
 
 def probe_http_redirect(

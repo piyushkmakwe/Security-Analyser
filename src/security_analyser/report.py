@@ -72,23 +72,47 @@ def render_text(result: ScanResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_json(result: ScanResult) -> str:
+def grade(result: ScanResult) -> str:
+    """Return an A–F letter grade summarising the result's risk."""
+    if not result.context.reachable:
+        return "N/A"
+    counts = result.counts()
+    if counts["critical"]:
+        return "F"
+    if counts["high"]:
+        return "E" if counts["high"] > 1 else "D"
+    if counts["medium"]:
+        return "C" if counts["medium"] > 2 else "B"
+    if counts["low"] or counts["info"]:
+        return "B"
+    return "A"
+
+
+def result_to_payload(result: ScanResult) -> Dict[str, object]:
+    """Build the serialisable dict shared by the JSON report and the web API."""
     ctx = result.context
-    payload = {
+    return {
         "target": ctx.requested_url,
         "final_url": ctx.final_url,
+        "host": ctx.host,
+        "scheme": ctx.scheme,
         "scanned_at": result.scanned_at.isoformat(),
         "reachable": ctx.reachable,
         "error": ctx.error,
         "status_code": ctx.status_code,
         "tls": ctx.tls.to_dict() if ctx.tls else None,
         "summary": result.counts(),
+        "total_findings": len(result.findings),
+        "grade": grade(result),
         "highest_severity": (
             result.highest_severity.label if result.highest_severity else None
         ),
         "findings": [f.to_dict() for f in result.sorted_findings()],
     }
-    return json.dumps(payload, indent=2)
+
+
+def render_json(result: ScanResult) -> str:
+    return json.dumps(result_to_payload(result), indent=2)
 
 
 def render_html(result: ScanResult) -> str:

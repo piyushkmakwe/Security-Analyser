@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import List, Optional
 
@@ -54,6 +55,19 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: high). Use 'critical'..'info'."
         ),
     )
+
+    serve_p = subparsers.add_parser("serve", help="Launch the web UI.")
+    serve_p.add_argument(
+        "--host", default=os.environ.get("HOST", "127.0.0.1"),
+        help=(
+            "Interface to bind (default: 127.0.0.1, localhost only; or the HOST "
+            "env var). Use 0.0.0.0 to accept external connections when hosting."
+        ),
+    )
+    serve_p.add_argument(
+        "-p", "--port", type=int, default=int(os.environ.get("PORT", "8000")),
+        help="Port to listen on (default: 8000, or the PORT env var).",
+    )
     return parser
 
 
@@ -89,11 +103,20 @@ def _run_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve(args: argparse.Namespace) -> int:
+    from security_analyser.web import serve
+
+    serve(host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "scan":
         return _run_scan(args)
+    if args.command == "serve":
+        return _run_serve(args)
     parser.print_help()
     return 0
 

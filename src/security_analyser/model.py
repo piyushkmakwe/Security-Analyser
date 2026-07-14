@@ -131,6 +131,7 @@ class ScanContext:
     status_code: Optional[int] = None
     headers: Headers = field(default_factory=Headers)
     cookies: List[Cookie] = field(default_factory=list)
+    body: str = ""
     tls: Optional[TlsInfo] = None
     # Result of probing http:// for a redirect to https://.
     http_redirects_to_https: Optional[bool] = None
