@@ -47,6 +47,11 @@ not just the failing ones — with a **safe / review / unsafe** verdict and a
 score (0–100) per check, plus a weighted **overall score** and letter grade.
 Reports can be downloaded as a self-contained HTML file (or JSON).
 
+Reports also explain **how each issue could be exploited** — a plain-language
+attacker's-eye view of the harm each finding enables — plus an overall
+**"How this site could be harmed"** summary that synthesises the findings into
+the concrete ways someone could attack the site.
+
 > ⚠️ **Only scan sites you own or are authorised to test.** This tool makes
 > ordinary HTTP requests to the target, but you are responsible for having
 > permission to assess it.
