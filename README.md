@@ -31,7 +31,13 @@ It fetches your site and inspects:
   (email-spoofing and certificate-issuance protection), via a built-in DNS
   resolver (no dependencies).
 - **Active probes** (optional, opt-in) — sends crafted requests to detect
-  **open redirects** and **reflected input** (a signal of reflected XSS).
+  **open redirects**, **reflected input** (reflected-XSS signal), **SQL
+  injection** (error/boolean-based, non-destructive), and **template
+  injection**. These are signals for manual confirmation, not an exploitation
+  engine.
+- **Malware / compromise indicators** — passively scans the served HTML/JS for
+  signs the site is hacked: in-browser cryptominers, obfuscated `eval`, hidden
+  external iframes, and web-shell patterns.
 - **Outdated components** — heuristic flag when disclosed software versions
   (Server / X-Powered-By / jQuery) are end-of-life and likely to carry CVEs.
 

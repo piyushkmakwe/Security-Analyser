@@ -124,6 +124,13 @@ _SCENARIOS: Dict[str, str] = {
     # Active
     "ACTIVE-OPEN-REDIRECT": "An attacker crafts a link on your trusted domain that bounces victims to a phishing site, lending it your site's credibility.",
     "ACTIVE-REFLECTED-INPUT": "An attacker crafts a URL that injects script into the page for anyone who clicks it (reflected XSS) — stealing sessions or acting as the victim.",
+    "ACTIVE-SQLI": "An attacker injects SQL through the parameter to read, alter or delete your entire database — dumping user records, password hashes and PII, or bypassing login.",
+    "ACTIVE-SSTI": "An attacker injects a template expression that the server evaluates, typically escalating to remote code execution and full server takeover.",
+    # Malware / compromise
+    "MALWARE-MINER": "Visitors' CPUs are hijacked to mine cryptocurrency for the attacker; its presence means your site is already compromised and serving attacker code.",
+    "MALWARE-EVAL": "Obfuscated injected JavaScript runs in every visitor's browser — it can redirect users, steal data, or push malware, and indicates the site is hacked.",
+    "MALWARE-WEBSHELL": "A web shell gives the attacker a remote command channel into your server — effectively full control of the host.",
+    "MALWARE-IFRAME": "The hidden iframe silently loads an attacker's page in every visitor's browser to deliver drive-by malware or redirects.",
 }
 
 _FALLBACK = "An attacker can leverage this weakness to move closer to compromising the site or its users."
@@ -145,6 +152,12 @@ _HARM_THEMES = [
     (("HTTPS-001", "HTTPS-002", "TLS-INVALID", "TLS-PROTOCOL", "HDR-REDIRECT-DOWNGRADE",
       "INTEGRITY-MIXED-ACTIVE", "INTEGRITY-FORM-HTTP"),
      "intercept or tamper with traffic on the network to capture credentials and sessions"),
+    (("ACTIVE-SQLI",),
+     "read, alter or dump your database via SQL injection (user records, password hashes, PII)"),
+    (("ACTIVE-SSTI",),
+     "run arbitrary code on your server via template injection, leading to full takeover"),
+    (("MALWARE-",),
+     "note that the site already appears compromised — injected code is served to your visitors right now"),
     (("HDR-CSP", "HDR-XCTO", "ACTIVE-REFLECTED-INPUT", "INTEGRITY-SRI"),
      "run malicious JavaScript in your users' browsers (XSS) to hijack their sessions"),
     (("COOKIE-SECURE", "COOKIE-HTTPONLY", "COOKIE-SAMESITE", "COOKIE-HOST-PREFIX",
