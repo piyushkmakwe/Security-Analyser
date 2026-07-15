@@ -17,6 +17,14 @@ It fetches your site and inspects:
 - **CORS** — dangerous `Access-Control-Allow-Origin: *`, especially combined
   with credentials.
 - **Information disclosure** — `Server` / `X-Powered-By` version banners.
+- **Cross-origin isolation** — COOP / CORP / `X-Permitted-Cross-Domain-Policies`.
+- **HTTP methods** — flags dangerous methods (TRACE / PUT / DELETE) via `OPTIONS`.
+- **CORS Origin reflection** — server echoing arbitrary origins (critical with credentials).
+- **Vulnerable JS libraries** — known-vulnerable jQuery/Angular/lodash/etc. versions.
+- **CSRF** — POST forms without an anti-CSRF token.
+- **Exposed API surface** (with `--probe-paths`) — Swagger/OpenAPI, GraphQL
+  introspection, Spring actuator, metrics endpoints.
+- **DNSSEC** (with `--dns`) — flags domains without DNSSEC.
 - **Content integrity** (can the page/data be altered?) — mixed content
   (HTTP resources on an HTTPS page), third-party scripts without Subresource
   Integrity, and forms that submit over plain HTTP.
@@ -57,6 +65,11 @@ Reports also explain **how each issue could be exploited** — a plain-language
 attacker's-eye view of the harm each finding enables — plus an overall
 **"How this site could be harmed"** summary that synthesises the findings into
 the concrete ways someone could attack the site.
+
+Every finding carries standardised metadata: a **CWE** id, its **OWASP Top 10**
+category, a **confidence** level (firm / tentative), reference links, and an
+**indicative CVSS** band. Reports export as text, JSON, self-contained HTML, or
+**SARIF 2.1.0** (`--format sarif`) for GitHub code scanning / CI dashboards.
 
 > ⚠️ **Only scan sites you own or are authorised to test.** This tool makes
 > ordinary HTTP requests to the target, but you are responsible for having

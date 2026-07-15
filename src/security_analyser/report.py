@@ -11,8 +11,10 @@ import html
 import json
 from typing import Dict
 
+from security_analyser import __version__
 from security_analyser.audit import build_scorecard
 from security_analyser.impact import attack_scenario, build_attack_summary
+from security_analyser.metadata import enrich
 from security_analyser.model import ScanResult, Severity
 
 _SEVERITY_ORDER = [
@@ -59,8 +61,10 @@ def result_to_payload(result: ScanResult) -> Dict[str, object]:
     for f in result.sorted_findings():
         d = f.to_dict()
         d["impact"] = attack_scenario(d)
+        enrich(d)
         findings.append(d)
     return {
+        "scanner_version": __version__,
         "target": ctx.requested_url,
         "final_url": ctx.final_url,
         "host": ctx.host,
@@ -152,7 +156,10 @@ def render_text(result: ScanResult) -> str:
     lines.append("")
     for i, f in enumerate(findings, 1):
         lines.append(f"[{i}] {f['severity'].upper():8} {f['title']}")
-        lines.append(f"    Category : {f['category']}  (id: {f['id']})")
+        meta_bits = f"{f['category']}  (id: {f['id']})"
+        lines.append(f"    Category : {meta_bits}")
+        classline = f"{f.get('cwe', '')} | {f.get('owasp', '')} | confidence: {f.get('confidence', '')}"
+        lines.append(f"    Class    : {classline}  (CVSS~{f.get('cvss', 0)})")
         if f.get("page"):
             lines.append(f"    Page     : {f['page']}")
         lines.append(f"    Issue    : {f['description']}")
@@ -172,6 +179,62 @@ def render_text(result: ScanResult) -> str:
 
 def render_json(result: ScanResult) -> str:
     return json.dumps(result_to_payload(result), indent=2)
+
+
+_SARIF_LEVEL = {
+    "critical": "error", "high": "error", "medium": "warning",
+    "low": "note", "info": "note",
+}
+
+
+def render_sarif(result: ScanResult) -> str:
+    """Render findings as SARIF 2.1.0 (for GitHub code scanning / CI dashboards)."""
+    payload = result_to_payload(result)
+    findings = payload["findings"]
+    rules = {}
+    results = []
+    for f in findings:
+        rid = f["id"]
+        if rid not in rules:
+            rules[rid] = {
+                "id": rid,
+                "name": f["title"],
+                "shortDescription": {"text": f["title"]},
+                "fullDescription": {"text": f["description"]},
+                "helpUri": (f.get("references") or [""])[0],
+                "properties": {
+                    "security-severity": str(f.get("cvss", 0.0)),
+                    "cwe": f.get("cwe", ""),
+                    "owasp": f.get("owasp", ""),
+                    "tags": ["security", f.get("cwe", "")],
+                },
+                "defaultConfiguration": {"level": _SARIF_LEVEL.get(f["severity"], "note")},
+            }
+        results.append({
+            "ruleId": rid,
+            "level": _SARIF_LEVEL.get(f["severity"], "note"),
+            "message": {"text": f"{f['description']} Fix: {f['recommendation']}"},
+            "properties": {"confidence": f.get("confidence", "firm"), "impact": f.get("impact", "")},
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": f.get("page") or payload["final_url"]}
+                }
+            }],
+        })
+    sarif = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "security-analyser",
+                "version": payload.get("scanner_version", "0"),
+                "informationUri": "https://github.com/piyushkmakwe/Security-Analyser",
+                "rules": list(rules.values()),
+            }},
+            "results": results,
+        }],
+    }
+    return json.dumps(sarif, indent=2)
 
 
 # --------------------------------------------------------------------------- #
@@ -267,7 +330,9 @@ def render_html_payload(payload: dict) -> str:
                 f'<article class="finding sev-{sev}">'
                 f'<div class="fh"><span class="badge sev-{sev}">{sev.upper()}</span>'
                 f'<h3>{e(f["title"])}</h3></div>'
-                f'<div class="meta2">{e(f["category"])} &middot; {e(f["id"])}</div>'
+                f'<div class="meta2">{e(f["category"])} &middot; {e(f["id"])} &middot; '
+                f'{e(f.get("cwe", ""))} &middot; {e(f.get("owasp", ""))} &middot; '
+                f'confidence: {e(f.get("confidence", ""))} &middot; CVSS~{e(str(f.get("cvss", 0)))}</div>'
                 f'<p>{e(f["description"])}</p>{page}{evidence}{impact}'
                 f'<div class="fix"><span>Recommended fix</span><p>{e(f["recommendation"])}</p></div>'
                 f"</article>"
@@ -449,6 +514,8 @@ def render(result: ScanResult, fmt: str = "text") -> str:
         return render_text(result)
     if fmt == "json":
         return render_json(result)
+    if fmt == "sarif":
+        return render_sarif(result)
     if fmt == "html":
         return render_html(result)
     raise ValueError(f"Unknown report format: {fmt!r}")

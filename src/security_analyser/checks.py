@@ -704,6 +704,98 @@ def check_tls_certificate(ctx: ScanContext) -> List[Finding]:
     return findings
 
 
+def check_cross_origin_isolation(ctx: ScanContext) -> List[Finding]:
+    findings: List[Finding] = []
+    if not ctx.headers.has("Cross-Origin-Opener-Policy"):
+        findings.append(Finding(
+            id="HDR-ISOLATION-COOP",
+            title="Missing Cross-Origin-Opener-Policy",
+            severity=Severity.LOW,
+            category="Security headers",
+            description=(
+                "Without COOP, a cross-origin window opener keeps a reference to your "
+                "page, enabling cross-window attacks and blocking Spectre isolation."
+            ),
+            recommendation="Add 'Cross-Origin-Opener-Policy: same-origin'.",
+        ))
+    if not ctx.headers.has("Cross-Origin-Resource-Policy"):
+        findings.append(Finding(
+            id="HDR-ISOLATION-CORP",
+            title="Missing Cross-Origin-Resource-Policy",
+            severity=Severity.INFO,
+            category="Security headers",
+            description=(
+                "CORP lets you stop other origins from embedding your resources, "
+                "mitigating side-channel (Spectre) leaks."
+            ),
+            recommendation="Add 'Cross-Origin-Resource-Policy: same-origin' (or same-site).",
+        ))
+    if not ctx.headers.has("X-Permitted-Cross-Domain-Policies"):
+        findings.append(Finding(
+            id="HDR-ISOLATION-XPCDP",
+            title="Missing X-Permitted-Cross-Domain-Policies",
+            severity=Severity.INFO,
+            category="Security headers",
+            description=(
+                "Without this header, legacy Flash/PDF clients may load cross-domain "
+                "policy files and broaden your attack surface."
+            ),
+            recommendation="Add 'X-Permitted-Cross-Domain-Policies: none'.",
+        ))
+    return findings
+
+
+def check_http_methods(ctx: ScanContext) -> List[Finding]:
+    dangerous = {"PUT", "DELETE", "TRACE", "TRACK", "CONNECT", "PATCH"}
+    present = sorted(dangerous & set(ctx.allowed_methods))
+    if not present:
+        return []
+    sev = Severity.MEDIUM if ({"PUT", "DELETE", "TRACE", "TRACK"} & set(present)) else Severity.LOW
+    return [Finding(
+        id="HDR-METHODS",
+        title=f"Dangerous HTTP methods enabled: {', '.join(present)}",
+        severity=sev,
+        category="Security headers",
+        description=(
+            "The server advertises risky HTTP methods. TRACE/TRACK enable "
+            "cross-site tracing; PUT/DELETE may allow unauthorised file changes."
+        ),
+        recommendation="Disable methods the application does not need; restrict PUT/DELETE.",
+        evidence=f"Allow: {', '.join(ctx.allowed_methods)}",
+    )]
+
+
+def check_cors_reflection(ctx: ScanContext) -> List[Finding]:
+    if not ctx.cors_reflects_origin:
+        return []
+    if ctx.cors_reflect_with_credentials:
+        return [Finding(
+            id="CORS-REFLECT-CREDS",
+            title="CORS reflects arbitrary origin with credentials",
+            severity=Severity.HIGH,
+            category="CORS",
+            description=(
+                "The server echoes any Origin into Access-Control-Allow-Origin and "
+                "allows credentials, so any website can make authenticated requests "
+                "and read a logged-in user's data."
+            ),
+            recommendation="Reflect only an allow-list of trusted origins; never combine reflection with credentials.",
+            evidence="Reflected probe Origin with Access-Control-Allow-Credentials: true",
+        )]
+    return [Finding(
+        id="CORS-REFLECT",
+        title="CORS reflects arbitrary origins",
+        severity=Severity.LOW,
+        category="CORS",
+        description=(
+            "The server echoes any Origin into Access-Control-Allow-Origin, exposing "
+            "responses to any site. Risky for anything user-specific."
+        ),
+        recommendation="Restrict Access-Control-Allow-Origin to specific trusted origins.",
+        evidence="Reflected the probe Origin header",
+    )]
+
+
 ALL_CHECKS: List[Check] = [
     check_https_enforcement,
     check_tls_certificate,
@@ -713,12 +805,15 @@ ALL_CHECKS: List[Check] = [
     check_content_type_options,
     check_referrer_policy,
     check_permissions_policy,
+    check_cross_origin_isolation,
+    check_http_methods,
     check_cookies,
     check_cache_control,
     check_redirect_hygiene,
     check_information_disclosure,
     check_outdated_versions,
     check_cors,
+    check_cors_reflection,
     *CONTENT_CHECKS,
 ]
 

@@ -17,6 +17,7 @@ from security_analyser.model import Finding, Severity
 _RESOLVERS = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
 _TYPE_TXT = 16
 _TYPE_CAA = 257
+_TYPE_DNSKEY = 48
 
 
 def _build_query(qname: str, qtype: int) -> bytes:
@@ -111,6 +112,13 @@ def caa_records(name: str, timeout: float = 5.0) -> Optional[List[str]]:
     return out
 
 
+def dnskey_present(name: str, timeout: float = 5.0):
+    raw = _query(name, _TYPE_DNSKEY, timeout)
+    if raw is None:
+        return None
+    return len(raw) > 0
+
+
 def _registrable_domain(host: str) -> str:
     labels = host.split(".")
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
@@ -154,6 +162,23 @@ def check_dns(host: str, timeout: float = 5.0) -> List[Finding]:
                     "lets you detect and reject spoofed email using your domain."
                 ),
                 recommendation="Publish a DMARC record, starting at 'v=DMARC1; p=none' and tightening to 'reject'.",
+            )
+        )
+
+    has_dnssec = dnskey_present(domain, timeout)
+    if has_dnssec is False:
+        findings.append(
+            Finding(
+                id="DNS-DNSSEC",
+                title="DNSSEC not enabled",
+                severity=Severity.LOW,
+                category="DNS & email",
+                description=(
+                    f"The domain {domain} publishes no DNSKEY records, so DNSSEC is "
+                    "not enabled. Without it, DNS responses can be forged (cache "
+                    "poisoning), redirecting users to attacker infrastructure."
+                ),
+                recommendation="Enable DNSSEC at your DNS provider / registrar.",
             )
         )
 
