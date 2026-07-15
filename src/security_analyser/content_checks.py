@@ -279,9 +279,103 @@ def check_exposed_secrets(ctx: ScanContext) -> List[Finding]:
     return findings
 
 
+# Signatures of a compromised page. Each: (id, title, severity, regex, description).
+_MALWARE_SIGNATURES = [
+    (
+        "MALWARE-MINER", "In-browser cryptominer", Severity.HIGH,
+        re.compile(r"(?i)coinhive|coin-hive|cryptonight|cryptoloot|webminepool|"
+                   r"crypto-?loot|miner\.start\s*\(|new\s+Miner|jsecoin"),
+        "The page loads an in-browser cryptocurrency miner, which hijacks visitors' "
+        "CPUs — a common sign the site has been compromised.",
+    ),
+    (
+        "MALWARE-EVAL", "Obfuscated script execution", Severity.MEDIUM,
+        re.compile(r"(?i)eval\s*\(\s*(?:atob|unescape|decodeURIComponent|"
+                   r"String\.fromCharCode)|eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c"),
+        "The page runs obfuscated, dynamically-decoded JavaScript (eval of "
+        "base64/packed code) — a frequent malware-injection pattern.",
+    ),
+    (
+        "MALWARE-WEBSHELL", "Server-side web-shell pattern", Severity.HIGH,
+        re.compile(r"(?i)eval\s*\(\s*base64_decode\s*\(|shell_exec\s*\(|"
+                   r"passthru\s*\(|\$_(?:GET|POST|REQUEST)\s*\[[^\]]+\]\s*\("),
+        "The served content contains a server-side web-shell pattern, suggesting the "
+        "site may be backdoored.",
+    ),
+]
+
+
+class _HiddenIframeCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hidden: List[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "iframe":
+            return
+        a = {k.lower(): (v or "") for k, v in attrs}
+        src = a.get("src", "")
+        style = a.get("style", "").lower().replace(" ", "")
+        hidden = (
+            "display:none" in style or "visibility:hidden" in style
+            or a.get("width", "") in ("0", "1") or a.get("height", "") in ("0", "1")
+        )
+        if hidden and src.lower().startswith(("http://", "https://", "//")):
+            self.hidden.append(src)
+
+
+def check_malware_indicators(ctx: ScanContext) -> List[Finding]:
+    """Passively scan the served HTML/JS for signs of compromise/malware."""
+    body = ctx.body or ""
+    if not body:
+        return []
+    findings: List[Finding] = []
+    for finding_id, title, severity, pattern, description in _MALWARE_SIGNATURES:
+        match = pattern.search(body)
+        if match:
+            findings.append(
+                Finding(
+                    id=finding_id, title=title, severity=severity,
+                    category="Malware / compromise", description=description,
+                    recommendation=(
+                        "Investigate immediately: this often means the site is hacked. "
+                        "Compare against a known-good copy, remove the injected code, "
+                        "rotate credentials, and check server logs."
+                    ),
+                    evidence=match.group(0)[:120],
+                )
+            )
+    parser = _HiddenIframeCollector()
+    try:
+        parser.feed(body)
+    except Exception:  # pragma: no cover
+        pass
+    if parser.hidden:
+        findings.append(
+            Finding(
+                id="MALWARE-IFRAME",
+                title="Hidden external iframe",
+                severity=Severity.HIGH,
+                category="Malware / compromise",
+                description=(
+                    "The page embeds a hidden (0-size or display:none) iframe pointing "
+                    "to an external site — a classic drive-by malware / redirect "
+                    "injection technique."
+                ),
+                recommendation=(
+                    "Remove the hidden iframe and audit the site for compromise; check "
+                    "how the code was injected."
+                ),
+                evidence="; ".join(parser.hidden[:3]),
+            )
+        )
+    return findings
+
+
 CONTENT_CHECKS = [
     check_mixed_content,
     check_subresource_integrity,
     check_insecure_form,
     check_exposed_secrets,
+    check_malware_indicators,
 ]

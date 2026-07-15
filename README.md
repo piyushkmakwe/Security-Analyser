@@ -31,7 +31,13 @@ It fetches your site and inspects:
   (email-spoofing and certificate-issuance protection), via a built-in DNS
   resolver (no dependencies).
 - **Active probes** (optional, opt-in) — sends crafted requests to detect
-  **open redirects** and **reflected input** (a signal of reflected XSS).
+  **open redirects**, **reflected input** (reflected-XSS signal), **SQL
+  injection** (error/boolean-based, non-destructive), and **template
+  injection**. These are signals for manual confirmation, not an exploitation
+  engine.
+- **Malware / compromise indicators** — passively scans the served HTML/JS for
+  signs the site is hacked: in-browser cryptominers, obfuscated `eval`, hidden
+  external iframes, and web-shell patterns.
 - **Outdated components** — heuristic flag when disclosed software versions
   (Server / X-Powered-By / jQuery) are end-of-life and likely to carry CVEs.
 
@@ -46,6 +52,11 @@ Every scan also produces a **scorecard**: a full checklist of *all* controls —
 not just the failing ones — with a **safe / review / unsafe** verdict and a
 score (0–100) per check, plus a weighted **overall score** and letter grade.
 Reports can be downloaded as a self-contained HTML file (or JSON).
+
+Reports also explain **how each issue could be exploited** — a plain-language
+attacker's-eye view of the harm each finding enables — plus an overall
+**"How this site could be harmed"** summary that synthesises the findings into
+the concrete ways someone could attack the site.
 
 > ⚠️ **Only scan sites you own or are authorised to test.** This tool makes
 > ordinary HTTP requests to the target, but you are responsible for having

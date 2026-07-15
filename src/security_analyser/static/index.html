@@ -190,6 +190,17 @@
   .st-safe { color: var(--ok); } .st-review { color: var(--low); }
   .st-unsafe { color: var(--high); } .st-na { color: var(--faint); }
 
+  .attack-box { background: color-mix(in srgb, var(--high) 10%, var(--card)); border: 1px solid var(--high);
+    border-radius: 13px; padding: 1rem 1.2rem; margin: 1.4rem 0; }
+  .attack-box h3 { margin: 0 0 .3rem; color: var(--high); font-size: 1rem; }
+  .attack-box p { margin: .2rem 0 .5rem; color: var(--muted); font-size: .88rem; }
+  .attack-box ul { margin: 0; padding-left: 1.2rem; }
+  .attack-box li { margin: .3rem 0; font-size: .9rem; }
+  .impact { margin-top: .6rem; font-size: .85rem; background: color-mix(in srgb, var(--high) 8%, var(--card-2));
+    border-left: 3px solid var(--high); border-radius: 8px; padding: .55rem .7rem; }
+  .impact b { display: block; text-transform: uppercase; font-size: .66rem; letter-spacing: .05em;
+    color: var(--high); margin-bottom: .2rem; }
+
   footer { text-align: center; color: var(--faint); font-size: .78rem; margin-top: 2.5rem; }
   footer .warn { color: var(--medium); }
 
@@ -379,6 +390,7 @@ function renderResults(d) {
       </div>
     </div>
     <div class="cards" id="cards">${cards}</div>
+    ${renderAttackSummary(d.attack_summary)}
     <h3 class="section-h">Scorecard — every check (is it safe?)</h3>
     ${renderScorecard(d.scorecard)}
     <div class="toolbar">
@@ -408,6 +420,16 @@ function renderResults(d) {
 
 const SC_COLOR = { safe: "var(--ok)", review: "var(--low)", unsafe: "var(--high)", "n/a": "var(--faint)" };
 const SC_LABEL = { safe: "SAFE", review: "REVIEW", unsafe: "UNSAFE", "n/a": "N/A" };
+
+function renderAttackSummary(items) {
+  if (!items || !items.length) return "";
+  const lis = items.map((a) => `<li>${escapeHtml(a)}.</li>`).join("");
+  return `<div class="attack-box">
+    <h3>⚠ How this site could be harmed</h3>
+    <p>Based on the findings, an attacker could:</p>
+    <ul>${lis}</ul>
+  </div>`;
+}
 
 function renderScorecard(sc) {
   if (!sc || !sc.controls || !sc.controls.length) return "";
@@ -457,6 +479,7 @@ function renderFindings() {
       <p>${escapeHtml(f.description)}</p>
       ${f.page ? `<div class="evidence"><span class="label">Page</span><code>${escapeHtml(f.page)}</code></div>` : ""}
       ${f.evidence ? `<div class="evidence"><span class="label">Evidence</span><code>${escapeHtml(f.evidence)}</code></div>` : ""}
+      ${f.impact ? `<div class="impact"><b>How this can be exploited</b>${escapeHtml(f.impact)}</div>` : ""}
       <div class="fix"><b>Recommended fix</b>${escapeHtml(f.recommendation)}</div>
     </article>`).join("");
 }

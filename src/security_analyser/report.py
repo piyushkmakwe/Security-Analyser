@@ -12,6 +12,7 @@ import json
 from typing import Dict
 
 from security_analyser.audit import build_scorecard
+from security_analyser.impact import attack_scenario, build_attack_summary
 from security_analyser.model import ScanResult, Severity
 
 _SEVERITY_ORDER = [
@@ -54,6 +55,11 @@ def result_to_payload(result: ScanResult) -> Dict[str, object]:
     """Build the serialisable dict shared by the reports and the web API."""
     ctx = result.context
     scorecard = build_scorecard(result)
+    findings = []
+    for f in result.sorted_findings():
+        d = f.to_dict()
+        d["impact"] = attack_scenario(d)
+        findings.append(d)
     return {
         "target": ctx.requested_url,
         "final_url": ctx.final_url,
@@ -74,7 +80,8 @@ def result_to_payload(result: ScanResult) -> Dict[str, object]:
             result.highest_severity.label if result.highest_severity else None
         ),
         "scorecard": scorecard,
-        "findings": [f.to_dict() for f in result.sorted_findings()],
+        "attack_summary": build_attack_summary(findings),
+        "findings": findings,
     }
 
 
@@ -131,6 +138,16 @@ def render_text(result: ScanResult) -> str:
         lines.append("No issues found. ✓")
         return "\n".join(lines) + "\n"
 
+    summary = payload.get("attack_summary") or []
+    if summary:
+        lines.append("")
+        lines.append("HOW THIS SITE COULD BE HARMED")
+        lines.append("-" * 70)
+        lines.append("Based on the findings, an attacker could:")
+        for item in summary:
+            lines.append(f"  - {item}.")
+        lines.append("-" * 70)
+
     lines.append("DETAILED FINDINGS")
     lines.append("")
     for i, f in enumerate(findings, 1):
@@ -141,6 +158,8 @@ def render_text(result: ScanResult) -> str:
         lines.append(f"    Issue    : {f['description']}")
         if f["evidence"]:
             lines.append(f"    Evidence : {f['evidence']}")
+        if f.get("impact"):
+            lines.append(f"    Exploit  : {f['impact']}")
         lines.append(f"    Fix      : {f['recommendation']}")
         lines.append("")
 
@@ -239,18 +258,34 @@ def render_html_payload(payload: dict) -> str:
                 f'<div class="evidence"><span>Page</span><code>{e(f["page"])}</code></div>'
                 if f.get("page") else ""
             )
+            impact = (
+                f'<div class="impact"><span>How this can be exploited</span>'
+                f'<p>{e(f["impact"])}</p></div>'
+                if f.get("impact") else ""
+            )
             items.append(
                 f'<article class="finding sev-{sev}">'
                 f'<div class="fh"><span class="badge sev-{sev}">{sev.upper()}</span>'
                 f'<h3>{e(f["title"])}</h3></div>'
                 f'<div class="meta2">{e(f["category"])} &middot; {e(f["id"])}</div>'
-                f'<p>{e(f["description"])}</p>{page}{evidence}'
+                f'<p>{e(f["description"])}</p>{page}{evidence}{impact}'
                 f'<div class="fix"><span>Recommended fix</span><p>{e(f["recommendation"])}</p></div>'
                 f"</article>"
             )
         findings_html = "\n".join(items)
     else:
         findings_html = '<p class="ok">No issues found. All checks passed. ✓</p>'
+
+    attack = payload.get("attack_summary") or []
+    if attack:
+        items = "".join(f"<li>{e(a)}.</li>" for a in attack)
+        attack_html = (
+            '<div class="attack"><h2>How this site could be harmed</h2>'
+            "<p>Based on the findings, an attacker could:</p>"
+            f"<ul>{items}</ul></div>"
+        )
+    else:
+        attack_html = ""
 
     body = f"""
       <h1>Security Analyser Report</h1>
@@ -271,6 +306,7 @@ def render_html_payload(payload: dict) -> str:
         </div>
       </div>
       {meta}
+      {attack_html}
       <h2>Scorecard &mdash; every check</h2>
       {scorecard_html}
       <h2>Detailed findings</h2>
@@ -370,6 +406,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .evidence code {{ display: block; background: #f6f6f6; padding: .5rem .6rem; border-radius: 6px;
           font-size: .8rem; word-break: break-all; }}
   .fix {{ background: #f3f8f3; border-radius: 6px; padding: .5rem .7rem; }}
+  .impact {{ margin-top: .55rem; font-size: .84rem; background: #fdf3f3; border-left: 3px solid #b91c1c;
+          border-radius: 6px; padding: .5rem .7rem; }}
+  .impact span {{ display: block; text-transform: uppercase; font-size: .66rem; letter-spacing: .05em;
+          color: #b91c1c; margin-bottom: .2rem; font-weight: 700; }}
+  .impact p {{ margin: 0; }}
+  .attack {{ background: #fff; border-radius: 12px; padding: 1rem 1.3rem; margin-top: 1.5rem;
+          border-left: 5px solid #b91c1c; box-shadow: 0 1px 3px rgba(0,0,0,.08); }}
+  .attack h2 {{ margin: 0 0 .3rem; color: #b91c1c; }}
+  .attack ul {{ margin: .4rem 0 0; padding-left: 1.2rem; }}
+  .attack li {{ margin: .25rem 0; font-size: .92rem; }}
   .ok {{ font-size: 1.05rem; color: #15803d; font-weight: 600; }}
   footer {{ margin-top: 2rem; color: #999; font-size: .78rem; text-align: center; }}
   @media (prefers-color-scheme: dark) {{
@@ -380,6 +426,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .meta th, .meta td, .score td {{ border-bottom-color: #2c2f37; }}
     .score .sm {{ color: #b7bdc8; }}
     .evidence code {{ background: #16181d; }} .fix {{ background: #1a241a; }}
+    .impact {{ background: #2a1a1a; }} .attack {{ background: #21242b; }}
     .bar {{ background: #2c2f37; }}
     .t.safe {{ background: #123122; }} .t.review {{ background: #322c12; }}
     .t.unsafe {{ background: #331717; }} .t.na {{ background: #24272e; }}

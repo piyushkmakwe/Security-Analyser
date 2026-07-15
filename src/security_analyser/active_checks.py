@@ -116,8 +116,108 @@ def check_reflected_input(url: str, timeout: float, verify_tls: bool) -> List[Fi
     return []
 
 
+# Database error signatures (error-based SQL injection).
+_SQL_ERRORS = [
+    "you have an error in your sql syntax",
+    "warning: mysql", "mysqli_", "mysql_fetch",
+    "unclosed quotation mark after the character string",
+    "quoted string not properly terminated",
+    "pg_query", "pg_exec", "postgresql query failed",
+    "syntax error at or near",
+    "sqlite3::", "sqlite_error", "sqliteexception",
+    "ora-00933", "ora-01756", "ora-00921",
+    "microsoft ole db provider for sql server",
+    "odbc sql server driver", "unclosed quotation",
+    "sqlstate[",
+]
+
+
+def _params_to_test(url: str) -> List[str]:
+    parsed = urlparse(url)
+    params = [k for k, _ in parse_qsl(parsed.query)]
+    return params or ["id"]  # fall back to a synthetic parameter
+
+
+def _fetch_body(url: str, timeout: float, verify_tls: bool):
+    try:
+        _s, _f, _h, _c, body, _ch = fetch(url, timeout=timeout, verify_tls=verify_tls)
+        return body
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def check_sql_injection(url: str, timeout: float, verify_tls: bool) -> List[Finding]:
+    """Non-destructive SQLi signal: error-based and boolean-based only."""
+    for param in _params_to_test(url):
+        # Error-based: a single quote often provokes a database error.
+        err_body = _fetch_body(_with_param(url, param, "sa'\"") , timeout, verify_tls)
+        if err_body:
+            low = err_body.lower()
+            hit = next((sig for sig in _SQL_ERRORS if sig in low), None)
+            if hit:
+                return [_sqli_finding(param, f"database error signature: '{hit}'")]
+        # Boolean-based: TRUE condition should resemble baseline, FALSE should differ.
+        base = _fetch_body(_with_param(url, param, "1"), timeout, verify_tls)
+        t = _fetch_body(_with_param(url, param, "1' AND '1'='1"), timeout, verify_tls)
+        f = _fetch_body(_with_param(url, param, "1' AND '1'='2"), timeout, verify_tls)
+        if base and t and f and len(t) != len(f):
+            if abs(len(t) - len(base)) < abs(len(f) - len(base)) and _diff_ratio(t, f) < 0.95:
+                return [_sqli_finding(param, "boolean condition changed the response")]
+    return []
+
+
+def _diff_ratio(a: str, b: str) -> float:
+    import difflib
+    return difflib.SequenceMatcher(None, a[:4000], b[:4000]).ratio()
+
+
+def _sqli_finding(param: str, why: str) -> Finding:
+    return Finding(
+        id="ACTIVE-SQLI",
+        title="Possible SQL injection",
+        severity=Severity.HIGH,
+        category="Active probes",
+        description=(
+            f"The '{param}' parameter appears to influence a SQL query ({why}). SQL "
+            "injection can let an attacker read, modify or delete database contents. "
+            "This is a signal — confirm manually."
+        ),
+        recommendation=(
+            "Use parameterised queries / prepared statements everywhere; never build "
+            "SQL by string concatenation. Validate and least-privilege the DB user."
+        ),
+        evidence=f"parameter '{param}': {why}",
+    )
+
+
+def check_injection_signals(url: str, timeout: float, verify_tls: bool) -> List[Finding]:
+    """Marker-based OS-command and template-injection signals (non-destructive)."""
+    findings: List[Finding] = []
+    for param in _params_to_test(url):
+        # Template injection: 7*7 should evaluate to 49 if the engine renders it.
+        body = _fetch_body(_with_param(url, param, "sa{{7*7}}sa"), timeout, verify_tls)
+        if body and "sa49sa" in body:
+            findings.append(Finding(
+                id="ACTIVE-SSTI",
+                title="Possible server-side template injection",
+                severity=Severity.HIGH,
+                category="Active probes",
+                description=(
+                    f"The '{param}' parameter evaluated a template expression "
+                    "(7*7 -> 49). Template injection can lead to remote code execution. "
+                    "Confirm manually."
+                ),
+                recommendation="Never render user input as a template; sandbox the template engine.",
+                evidence=f"parameter '{param}': {{{{7*7}}}} rendered as 49",
+            ))
+            break
+    return findings
+
+
 def run_active_checks(url: str, timeout: float, verify_tls: bool = True) -> List[Finding]:
     findings: List[Finding] = []
     findings.extend(check_open_redirect(url, timeout, verify_tls))
     findings.extend(check_reflected_input(url, timeout, verify_tls))
+    findings.extend(check_sql_injection(url, timeout, verify_tls))
+    findings.extend(check_injection_signals(url, timeout, verify_tls))
     return findings
