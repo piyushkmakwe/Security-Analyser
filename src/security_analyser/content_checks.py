@@ -211,6 +211,31 @@ _SECRET_PATTERNS = [
         "Revoke this Slack token and keep it server-side.",
     ),
     (
+        "SECRET-TWILIO", "Twilio API key/SID", Severity.HIGH,
+        re.compile(r"\bSK[0-9a-fA-F]{32}\b|\bAC[0-9a-fA-F]{32}\b"),
+        "Rotate the Twilio credential and keep it server-side.",
+    ),
+    (
+        "SECRET-SENDGRID", "SendGrid API key", Severity.HIGH,
+        re.compile(r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b"),
+        "Revoke the SendGrid key and move mail sending server-side.",
+    ),
+    (
+        "SECRET-MAILGUN", "Mailgun API key", Severity.HIGH,
+        re.compile(r"\bkey-[0-9a-f]{32}\b"),
+        "Rotate the Mailgun key and keep it server-side.",
+    ),
+    (
+        "SECRET-NPM", "npm access token", Severity.HIGH,
+        re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"),
+        "Revoke the npm token immediately.",
+    ),
+    (
+        "SECRET-BEARER", "Hard-coded bearer token", Severity.MEDIUM,
+        re.compile(r"(?i)authorization\s*[:=]\s*['\"]?bearer\s+([A-Za-z0-9._\-]{20,})"),
+        "Do not embed bearer tokens in client code; obtain them per-session instead.",
+    ),
+    (
         "SECRET-PRIVATE-KEY", "Private key block", Severity.CRITICAL,
         re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
         "A private key is embedded in the page. Rotate the key pair and remove it immediately.",
@@ -372,10 +397,116 @@ def check_malware_indicators(ctx: ScanContext) -> List[Finding]:
     return findings
 
 
+# Known-vulnerable JavaScript libraries: (name, first_safe_version, note).
+_JS_LIBS = [
+    ("jquery", (3, 5, 0), "jQuery < 3.5.0 has XSS vulnerabilities (CVE-2020-11022/11023)."),
+    ("angular", (1, 8, 0), "AngularJS 1.x < 1.8.0 has known XSS/sandbox-escape issues (and is EOL)."),
+    ("bootstrap", (3, 4, 1), "Bootstrap < 3.4.1 / < 4.3.1 has XSS via data attributes."),
+    ("lodash", (4, 17, 21), "lodash < 4.17.21 is vulnerable to prototype pollution / command injection."),
+    ("moment", (2, 29, 4), "moment < 2.29.4 has ReDoS / path-traversal issues (and is deprecated)."),
+    ("underscore", (1, 13, 2), "underscore < 1.13.2 is vulnerable to arbitrary code execution (CVE-2021-23358)."),
+]
+
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+def _version_tuple(text: str):
+    m = _VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+
+
+def check_vulnerable_js(ctx: ScanContext) -> List[Finding]:
+    """Flag known-vulnerable versions of common JS libraries loaded by the page."""
+    if not ctx.body:
+        return []
+    findings: List[Finding] = []
+    seen = set()
+    for tag, attrs in _collect_tags(ctx.body):
+        if tag != "script":
+            continue
+        src = attrs.get("src", "")
+        low = src.lower()
+        for name, safe, note in _JS_LIBS:
+            if name not in low or name in seen:
+                continue
+            # Extract version from the part of the URL after the library name.
+            version = _version_tuple(low.split(name, 1)[1])
+            if version and version < safe and name not in seen:
+                seen.add(name)
+                findings.append(Finding(
+                    id="JSLIB-OUTDATED",
+                    title=f"Outdated JavaScript library: {name} {'.'.join(map(str, version))}",
+                    severity=Severity.MEDIUM,
+                    category="Outdated components",
+                    description=(
+                        f"{note} Loading a vulnerable library exposes your users to "
+                        "known client-side exploits. This is a heuristic based on the "
+                        "version in the script URL."
+                    ),
+                    recommendation=f"Upgrade {name} to {'.'.join(map(str, safe))} or later.",
+                    evidence=src,
+                ))
+    return findings
+
+
+class _FormCsrfCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._in_post_form = False
+        self._has_token = False
+        self.unprotected = 0
+
+    def handle_starttag(self, tag, attrs):
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if tag == "form":
+            self._in_post_form = a.get("method", "").lower() == "post"
+            self._has_token = False
+        elif tag == "input" and self._in_post_form:
+            name = (a.get("name", "") + a.get("id", "")).lower()
+            if any(t in name for t in ("csrf", "xsrf", "token", "authenticity", "nonce")):
+                self._has_token = True
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self._in_post_form:
+            if not self._has_token:
+                self.unprotected += 1
+            self._in_post_form = False
+
+
+def check_csrf_token(ctx: ScanContext) -> List[Finding]:
+    """Flag POST forms that carry no apparent anti-CSRF token."""
+    if not ctx.body:
+        return []
+    parser = _FormCsrfCollector()
+    try:
+        parser.feed(ctx.body)
+    except Exception:  # pragma: no cover
+        pass
+    if not parser.unprotected:
+        return []
+    return [Finding(
+        id="FORM-CSRF",
+        title="Form without an anti-CSRF token",
+        severity=Severity.MEDIUM,
+        category="Cookies",
+        description=(
+            f"{parser.unprotected} POST form(s) contain no hidden anti-CSRF token. "
+            "Combined with a cookie-based session, an attacker's page can submit the "
+            "form on a victim's behalf (CSRF). This is a heuristic — confirm your "
+            "framework isn't using another mechanism (e.g. SameSite + custom header)."
+        ),
+        recommendation="Include a per-session CSRF token in state-changing forms and verify it server-side.",
+    )]
+
+
 CONTENT_CHECKS = [
     check_mixed_content,
     check_subresource_integrity,
     check_insecure_form,
     check_exposed_secrets,
     check_malware_indicators,
+    check_vulnerable_js,
+    check_csrf_token,
 ]

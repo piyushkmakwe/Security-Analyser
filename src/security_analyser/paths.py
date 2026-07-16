@@ -99,6 +99,39 @@ PATH_SPECS: List[PathSpec] = [
         ["/.DS_Store"],
         lambda s, c, b: s == 200 and ("Bud1" in b or "application/octet-stream" in c.lower()),
     ),
+    PathSpec(
+        "PATH-SWAGGER", "Exposed API documentation (Swagger/OpenAPI)", Severity.LOW,
+        "An API schema/documentation endpoint is public, mapping your entire API "
+        "surface for an attacker.",
+        "Restrict API docs to trusted networks or require authentication in production.",
+        ["/swagger.json", "/openapi.json", "/api-docs", "/v2/api-docs", "/swagger-ui.html"],
+        lambda s, c, b: s == 200 and ("swagger" in b.lower() or "openapi" in b.lower()
+                                      or "\"paths\"" in b.lower()),
+    ),
+    PathSpec(
+        "PATH-GRAPHQL", "GraphQL introspection enabled", Severity.MEDIUM,
+        "The GraphQL endpoint answers introspection queries, exposing the full "
+        "schema (types, queries, mutations) to attackers.",
+        "Disable introspection in production and require authentication.",
+        ["/graphql?query=%7B__schema%7Btypes%7Bname%7D%7D%7D"],
+        lambda s, c, b: s == 200 and "__schema" in b and "types" in b,
+    ),
+    PathSpec(
+        "PATH-ACTUATOR", "Spring Boot actuator exposed", Severity.MEDIUM,
+        "Spring Boot actuator endpoints are public, leaking configuration, env "
+        "variables, and health/metrics internals.",
+        "Secure actuator endpoints and expose only what is needed.",
+        ["/actuator", "/actuator/env", "/actuator/health"],
+        lambda s, c, b: s == 200 and ("_links" in b or "\"status\"" in b or "diskSpace" in b),
+    ),
+    PathSpec(
+        "PATH-METRICS", "Metrics endpoint exposed", Severity.LOW,
+        "A Prometheus/metrics endpoint is public, leaking operational internals and "
+        "aiding reconnaissance.",
+        "Restrict metrics endpoints to your monitoring network.",
+        ["/metrics"],
+        lambda s, c, b: s == 200 and ("# HELP" in b or "# TYPE" in b),
+    ),
 ]
 
 

@@ -27,9 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan_p.add_argument("url", help="The website URL to scan (e.g. https://example.com).")
     scan_p.add_argument(
         "-f", "--format",
-        choices=["text", "json", "html"],
+        choices=["text", "json", "html", "sarif"],
         default="text",
-        help="Report format (default: text).",
+        help="Report format (default: text). 'sarif' suits CI / code-scanning.",
     )
     scan_p.add_argument(
         "-o", "--output",

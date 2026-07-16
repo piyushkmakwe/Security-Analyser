@@ -166,6 +166,48 @@ def probe_path(
     return int(getattr(response, "status", 200)), ctype, body
 
 
+CORS_PROBE_ORIGIN = "https://sa-cors-probe.example"
+
+
+def probe_options(url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True):
+    """Send an OPTIONS request with a probe Origin.
+
+    Returns ``(allowed_methods, cors_reflects, cors_with_credentials)``.
+    Best-effort: returns empty/false values on any error.
+    """
+    context = ssl.create_default_context()
+    if not verify_tls:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    opener = urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=context)
+    )
+    request = urllib.request.Request(
+        url, method="OPTIONS",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Origin": CORS_PROBE_ORIGIN,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    try:
+        response = opener.open(request, timeout=timeout)
+        headers = response.headers
+        response.close()
+    except urllib.error.HTTPError as exc:
+        headers = exc.headers
+    except (urllib.error.URLError, socket.error, ssl.SSLError, OSError):
+        return [], False, False
+    if headers is None:
+        return [], False, False
+    allow = headers.get("Allow", "") or headers.get("Access-Control-Allow-Methods", "")
+    methods = [m.strip().upper() for m in allow.split(",") if m.strip()]
+    acao = (headers.get("Access-Control-Allow-Origin", "") or "").strip()
+    creds = (headers.get("Access-Control-Allow-Credentials", "") or "").strip().lower() == "true"
+    reflects = acao == CORS_PROBE_ORIGIN
+    return methods, reflects, (reflects and creds)
+
+
 def probe_http_redirect(
     host: str, timeout: float = DEFAULT_TIMEOUT
 ) -> Tuple[Optional[bool], Optional[bool]]:

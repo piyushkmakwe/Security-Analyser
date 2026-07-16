@@ -141,6 +141,10 @@ class ScanContext:
     http_redirects_to_https: Optional[bool] = None
     http_reachable_plaintext: Optional[bool] = None
     redirect_chain: List[str] = field(default_factory=list)
+    # Results of the lightweight OPTIONS/Origin probe.
+    allowed_methods: List[str] = field(default_factory=list)
+    cors_reflects_origin: bool = False
+    cors_reflect_with_credentials: bool = False
     # Set by the crawler / path prober / optional check groups.
     pages_scanned: int = 1
     paths_probed: bool = False

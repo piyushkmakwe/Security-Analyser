@@ -57,6 +57,13 @@ def scan(
         final_host, timeout=timeout
     )
 
+    try:
+        methods, cors_reflects, cors_creds = fetch.probe_options(
+            final_url, timeout=timeout, verify_tls=verify_tls
+        )
+    except Exception:  # pragma: no cover - probe is best-effort
+        methods, cors_reflects, cors_creds = [], False, False
+
     ctx = ScanContext(
         requested_url=normalized,
         final_url=final_url,
@@ -71,6 +78,9 @@ def scan(
         http_redirects_to_https=redirects_to_https,
         http_reachable_plaintext=plaintext_reachable,
         redirect_chain=chain,
+        allowed_methods=methods,
+        cors_reflects_origin=cors_reflects,
+        cors_reflect_with_credentials=cors_creds,
     )
 
     findings = run_checks(ctx)
