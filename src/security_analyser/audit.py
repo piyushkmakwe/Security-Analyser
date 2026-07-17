@@ -99,7 +99,7 @@ CONTROLS: List[Control] = [
             _prefix("MALWARE-")),
     Control("secrets", "Secret exposure", "Secret exposure", 17,
             "No API keys or credentials found in page source.",
-            _prefix("SECRET-")),
+            lambda i: i.startswith(("SECRET-", "JWT-"))),
     Control("components", "Outdated components", "Outdated components", 6,
             "No end-of-life software or vulnerable JS libraries.",
             lambda i: i.startswith(("VERSION-", "JSLIB-"))),

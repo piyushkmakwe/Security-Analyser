@@ -839,6 +839,71 @@ def check_cors_reflection(ctx: ScanContext) -> List[Finding]:
     )]
 
 
+def check_cors_bypass(ctx: ScanContext) -> List[Finding]:
+    findings: List[Finding] = []
+    if ctx.cors_allows_null:
+        findings.append(Finding(
+            id="CORS-NULL-ORIGIN",
+            title="CORS allows the 'null' origin with credentials",
+            severity=Severity.HIGH,
+            category="CORS",
+            description=(
+                "The server returns 'Access-Control-Allow-Origin: null' with "
+                "credentials. An attacker can obtain a null origin (e.g. from a "
+                "sandboxed iframe or a data: document) and read authenticated data."
+            ),
+            recommendation="Never allow the 'null' origin; use an explicit allow-list of trusted origins.",
+            evidence="Access-Control-Allow-Origin: null with credentials",
+        ))
+    if ctx.cors_bypass_origin:
+        findings.append(Finding(
+            id="CORS-BYPASS",
+            title="CORS allow-list can be bypassed by a crafted origin",
+            severity=Severity.HIGH,
+            category="CORS",
+            description=(
+                "The server reflected an attacker-controlled origin that abuses a "
+                "naive prefix/suffix origin check. An attacker registers a matching "
+                "domain and reads authenticated cross-origin responses."
+            ),
+            recommendation="Match the full origin exactly against an allow-list; do not use substring/regex checks.",
+            evidence=f"Reflected crafted origin: {ctx.cors_bypass_origin}",
+        ))
+    return findings
+
+
+def check_scan_blocked(ctx: ScanContext) -> List[Finding]:
+    """Flag when the target appears to be blocking the scan (WAF / rate limit)."""
+    status = ctx.status_code or 0
+    body_l = (ctx.body or "").lower()
+    waf_markers = (
+        "attention required", "cloudflare", "access denied", "request blocked",
+        "you have been blocked", "captcha", "akamai", "incapsula", "please verify you are a human",
+    )
+    marker = next((m for m in waf_markers if m in body_l), None)
+    if status in (401, 403, 429) or (marker and status >= 400):
+        ctx.coverage["blocking"] = {
+            "status": "blocked",
+            "detail": f"HTTP {status}" + (f" / {marker}" if marker else ""),
+        }
+        return [Finding(
+            id="SCAN-INCOMPLETE",
+            title="Scan may be incomplete — the server returned a blocking response",
+            severity=Severity.INFO,
+            category="Scan coverage",
+            description=(
+                f"The target responded with HTTP {status}"
+                + (f" and a '{marker}' page" if marker else "")
+                + ". A WAF or rate limiter may be blocking the scanner, so some checks "
+                "could be based on the block page rather than your real content. Treat "
+                "a clean result with caution and consider scanning from an allow-listed IP."
+            ),
+            recommendation="Allow-list the scanner's source IP, or reduce request rate (use --delay).",
+            evidence=f"HTTP {status}" + (f"; body mentions '{marker}'" if marker else ""),
+        )]
+    return []
+
+
 ALL_CHECKS: List[Check] = [
     check_https_enforcement,
     check_tls_certificate,
@@ -858,12 +923,24 @@ ALL_CHECKS: List[Check] = [
     check_outdated_versions,
     check_cors,
     check_cors_reflection,
+    check_cors_bypass,
+    check_scan_blocked,
     *CONTENT_CHECKS,
 ]
 
 
 def run_checks(ctx: ScanContext) -> List[Finding]:
+    """Run every check, isolating failures so one bad check can't abort a scan."""
     findings: List[Finding] = []
+    errors: List[str] = []
     for check in ALL_CHECKS:
-        findings.extend(check(ctx))
+        try:
+            findings.extend(check(ctx))
+        except Exception as exc:  # never let a single check crash the scan
+            errors.append(f"{check.__name__}: {exc.__class__.__name__}")
+    if errors:
+        ctx.coverage["checks"] = {"status": "partial",
+                                  "detail": f"{len(errors)} check(s) errored: " + "; ".join(errors[:5])}
+    else:
+        ctx.coverage["checks"] = {"status": "ran", "detail": f"{len(ALL_CHECKS)} passive checks"}
     return findings

@@ -84,6 +84,7 @@ def result_to_payload(result: ScanResult) -> Dict[str, object]:
             result.highest_severity.label if result.highest_severity else None
         ),
         "scorecard": scorecard,
+        "coverage": ctx.coverage,
         "attack_summary": build_attack_summary(findings),
         "findings": findings,
     }
@@ -136,6 +137,15 @@ def render_text(result: ScanResult) -> str:
         lines.append(f"[{status:^6}] {c['title']:<34} {score}")
         lines.append(f"           {c['summary']}")
     lines.append("-" * 70)
+
+    coverage = payload.get("coverage") or {}
+    if coverage:
+        lines.append("")
+        lines.append("SCAN COVERAGE (what was actually tested)")
+        lines.append("-" * 70)
+        for group, info in coverage.items():
+            lines.append(f"  {group:<18} {info.get('status', ''):<8} {info.get('detail', '')}")
+        lines.append("-" * 70)
 
     findings = payload["findings"]
     if not findings:

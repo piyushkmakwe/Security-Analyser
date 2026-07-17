@@ -501,6 +501,47 @@ def check_csrf_token(ctx: ScanContext) -> List[Finding]:
     )]
 
 
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.([A-Za-z0-9_\-]{6,})\.[A-Za-z0-9_\-]{0,}")
+
+
+def _b64url_decode(segment: str) -> bytes:
+    import base64
+    pad = "=" * (-len(segment) % 4)
+    return base64.urlsafe_b64decode(segment + pad)
+
+
+def check_jwt_weakness(ctx: ScanContext) -> List[Finding]:
+    """Decode JWT headers found in the page and flag 'alg: none' / weak signing."""
+    if not ctx.body:
+        return []
+    import json
+    seen = set()
+    findings: List[Finding] = []
+    for match in _JWT_RE.finditer(ctx.body):
+        header_seg = match.group(0).split(".", 1)[0]
+        try:
+            header = json.loads(_b64url_decode(header_seg).decode("utf-8", "replace"))
+        except Exception:
+            continue
+        alg = str(header.get("alg", "")).lower()
+        if alg in ("none", "") and "none" not in seen:
+            seen.add("none")
+            findings.append(Finding(
+                id="JWT-ALG-NONE",
+                title="JWT accepts the 'none' algorithm",
+                severity=Severity.HIGH,
+                category="Secret exposure",
+                description=(
+                    "A JSON Web Token in the page uses the 'none' algorithm, meaning it "
+                    "is unsigned. If the server accepts such tokens, an attacker can "
+                    "forge arbitrary tokens and impersonate any user."
+                ),
+                recommendation="Reject 'alg: none'; pin the expected signing algorithm server-side.",
+                evidence=f"JWT header alg={header.get('alg')!r}",
+            ))
+    return findings
+
+
 CONTENT_CHECKS = [
     check_mixed_content,
     check_subresource_integrity,
@@ -509,4 +550,5 @@ CONTENT_CHECKS = [
     check_malware_indicators,
     check_vulnerable_js,
     check_csrf_token,
+    check_jwt_weakness,
 ]
