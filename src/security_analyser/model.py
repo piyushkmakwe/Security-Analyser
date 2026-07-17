@@ -84,6 +84,10 @@ class TlsInfo:
     days_to_expiry: Optional[int] = None
     issuer: Optional[str] = None
     subject: Optional[str] = None
+    supported_protocols: List[str] = field(default_factory=list)
+    cipher_name: Optional[str] = None
+    cipher_bits: Optional[int] = None
+    self_signed: bool = False
 
     def to_dict(self) -> Dict[str, Optional[str]]:
         return {
@@ -93,6 +97,8 @@ class TlsInfo:
             "verified": str(self.verified),
             "verify_error": self.verify_error,
             "protocol": self.protocol,
+            "supported_protocols": ", ".join(self.supported_protocols) or None,
+            "cipher": self.cipher_name,
             "not_after": self.not_after.isoformat() if self.not_after else None,
             "days_to_expiry": None if self.days_to_expiry is None else str(self.days_to_expiry),
             "issuer": self.issuer,

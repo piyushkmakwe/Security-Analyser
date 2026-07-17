@@ -150,7 +150,11 @@ def probe_path(
         response = opener.open(request, timeout=timeout)
     except urllib.error.HTTPError as exc:
         ctype = exc.headers.get("Content-Type", "") if exc.headers else ""
-        return exc.code, ctype, ""
+        try:
+            body = exc.read(4096).decode("utf-8", errors="replace")
+        except Exception:  # pragma: no cover - best effort
+            body = ""
+        return exc.code, ctype, body
     except (urllib.error.URLError, socket.error, ssl.SSLError, OSError):
         return None
     try:
@@ -244,17 +248,54 @@ def inspect_tls(host: str, port: int = 443, timeout: float = DEFAULT_TIMEOUT) ->
                 info.connected = True
                 info.verified = True
                 info.protocol = tls_sock.version()
+                cipher = tls_sock.cipher()
+                if cipher:
+                    info.cipher_name, _, info.cipher_bits = cipher
                 cert = tls_sock.getpeercert()
                 _populate_cert(info, cert)
     except ssl.SSLCertVerificationError as exc:
         info.connected = True
         info.verified = False
         info.verify_error = str(exc)
+        info.self_signed = "self-signed" in str(exc).lower() or "self signed" in str(exc).lower()
         _inspect_tls_unverified(info, host, port, timeout)
     except (socket.timeout, socket.gaierror, ConnectionError, ssl.SSLError, OSError) as exc:
         info.connected = False
         info.verify_error = str(exc)
+    if info.connected:
+        info.supported_protocols = _enumerate_protocols(host, port, timeout)
     return info
+
+
+# Protocol label -> the ssl.TLSVersion to pin the connection to.
+_PROTOCOL_VERSIONS = [
+    ("TLSv1", getattr(ssl.TLSVersion, "TLSv1", None)),
+    ("TLSv1.1", getattr(ssl.TLSVersion, "TLSv1_1", None)),
+    ("TLSv1.2", getattr(ssl.TLSVersion, "TLSv1_2", None)),
+    ("TLSv1.3", getattr(ssl.TLSVersion, "TLSv1_3", None)),
+]
+
+
+def _enumerate_protocols(host: str, port: int, timeout: float) -> List[str]:
+    """Return the TLS protocol versions the server will actually negotiate."""
+    supported = []
+    for label, version in _PROTOCOL_VERSIONS:
+        if version is None:
+            continue
+        ctx = ssl._create_unverified_context()  # noqa: SLF001 - probing only
+        try:
+            ctx.minimum_version = version
+            ctx.maximum_version = version
+        except (ValueError, OSError):
+            # The local OpenSSL build refuses to offer this version at all.
+            continue
+        try:
+            with socket.create_connection((host, port), timeout=timeout) as sock:
+                with ctx.wrap_socket(sock, server_hostname=host):
+                    supported.append(label)
+        except (OSError, ssl.SSLError, ValueError):
+            continue
+    return supported
 
 
 def _inspect_tls_unverified(

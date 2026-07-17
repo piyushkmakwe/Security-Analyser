@@ -18,6 +18,7 @@ def scan(
     extra_headers: Optional[dict] = None,
     dns_checks_enabled: bool = False,
     active_checks_enabled: bool = False,
+    scan_assets: bool = True,
 ) -> ScanResult:
     """Scan ``url`` and return a :class:`ScanResult`.
 
@@ -84,6 +85,20 @@ def scan(
     )
 
     findings = run_checks(ctx)
+
+    # Error-page / debug-mode disclosure (lightweight, always on).
+    from security_analyser.error_checks import check_error_disclosure
+    findings.extend(check_error_disclosure(final_url, timeout=timeout, verify_tls=verify_tls))
+
+    # Scan linked same-origin JS/CSS for secrets and malware (reliability).
+    if scan_assets and body:
+        from security_analyser.assets import scan_assets as _scan_assets
+        seen = {(f.id, f.evidence) for f in findings}
+        for finding in _scan_assets(final_url, body, final_host, final_scheme,
+                                    timeout=timeout, verify_tls=verify_tls):
+            if (finding.id, finding.evidence) not in seen:
+                seen.add((finding.id, finding.evidence))
+                findings.append(finding)
 
     if dns_checks_enabled:
         from security_analyser.dns_checks import check_dns

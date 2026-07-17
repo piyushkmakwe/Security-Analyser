@@ -704,6 +704,49 @@ def check_tls_certificate(ctx: ScanContext) -> List[Finding]:
     return findings
 
 
+_WEAK_CIPHER_TOKENS = ("RC4", "3DES", "DES-", "NULL", "EXPORT", "MD5", "ANON")
+
+
+def check_tls_deep(ctx: ScanContext) -> List[Finding]:
+    """Protocol-enumeration and cipher-strength checks (reliability additions)."""
+    if not ctx.is_https or ctx.tls is None or not ctx.tls.connected:
+        return []
+    tls = ctx.tls
+    findings: List[Finding] = []
+    legacy = [p for p in tls.supported_protocols if p in ("TLSv1", "TLSv1.1")]
+    if legacy:
+        findings.append(Finding(
+            id="TLS-PROTO-OLD",
+            title=f"Legacy TLS protocol supported: {', '.join(legacy)}",
+            severity=Severity.MEDIUM,
+            category="Transport security",
+            description=(
+                "The server still accepts an outdated TLS version even if it prefers a "
+                "modern one. These versions (TLS 1.0/1.1) have known weaknesses and are "
+                "disallowed by PCI DSS and modern browsers."
+            ),
+            recommendation="Disable TLS 1.0 and 1.1 at the server; require TLS 1.2+ (ideally 1.3).",
+            evidence=f"Supported: {', '.join(tls.supported_protocols)}",
+        ))
+    if tls.cipher_name and (
+        any(tok in tls.cipher_name.upper() for tok in _WEAK_CIPHER_TOKENS)
+        or (tls.cipher_bits is not None and tls.cipher_bits < 128)
+    ):
+        findings.append(Finding(
+            id="TLS-CIPHER-WEAK",
+            title=f"Weak TLS cipher negotiated ({tls.cipher_name})",
+            severity=Severity.MEDIUM,
+            category="Transport security",
+            description=(
+                "The negotiated cipher suite is weak (legacy algorithm or < 128-bit), "
+                "which can allow decryption of intercepted traffic."
+            ),
+            recommendation="Configure a modern cipher suite list (AEAD ciphers, forward secrecy).",
+            evidence=f"Cipher: {tls.cipher_name} ({tls.cipher_bits} bits)",
+        ))
+    return findings
+
+
 def check_cross_origin_isolation(ctx: ScanContext) -> List[Finding]:
     findings: List[Finding] = []
     if not ctx.headers.has("Cross-Origin-Opener-Policy"):
@@ -799,6 +842,7 @@ def check_cors_reflection(ctx: ScanContext) -> List[Finding]:
 ALL_CHECKS: List[Check] = [
     check_https_enforcement,
     check_tls_certificate,
+    check_tls_deep,
     check_hsts,
     check_csp,
     check_frame_options,
