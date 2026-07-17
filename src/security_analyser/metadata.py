@@ -51,7 +51,12 @@ _META: Dict[str, Tuple[str, str, List[str]]] = {
     # CORS
     "CORS-": ("CWE-942", "A05", [_CHEATSHEET + "HTML5_Security_Cheat_Sheet.html"]),
     # Info / components
+    "INFO-DEBUG": ("CWE-489", "A05", [_CHEATSHEET + "Error_Handling_Cheat_Sheet.html"]),
+    "INFO-STACKTRACE": ("CWE-209", "A05", [_CHEATSHEET + "Error_Handling_Cheat_Sheet.html"]),
     "INFO-": ("CWE-200", "A05", [_CHEATSHEET + "Error_Handling_Cheat_Sheet.html"]),
+    "TLS-CIPHER-WEAK": ("CWE-327", "A02", [_CHEATSHEET + "Transport_Layer_Security_Cheat_Sheet.html"]),
+    "TLS-PROTO-OLD": ("CWE-326", "A02", [_CHEATSHEET + "Transport_Layer_Security_Cheat_Sheet.html"]),
+    "DNS-AXFR": ("CWE-538", "A05", ["https://owasp.org/www-community/attacks/DNS_zone_transfer"]),
     "VERSION-": ("CWE-1104", "A06", [_CHEATSHEET + "Vulnerable_Dependency_Management_Cheat_Sheet.html"]),
     "JSLIB-": ("CWE-1104", "A06", ["https://owasp.org/www-project-top-ten/2017/A9_2017-Using_Components_with_Known_Vulnerabilities"]),
     # Integrity

@@ -8,8 +8,9 @@ It fetches your site and inspects:
 
 - **HTTPS enforcement** — is the site served over HTTPS, and does plain HTTP
   redirect to it?
-- **TLS certificate** — validity, trust, hostname match, expiry, and protocol
-  version (flags TLS 1.1 and below).
+- **TLS certificate & configuration** — validity, trust, hostname match, expiry,
+  self-signed detection, **supported-protocol enumeration** (flags TLS 1.0/1.1
+  even when a modern version is preferred) and **weak cipher** detection.
 - **Security headers** — `Strict-Transport-Security` (HSTS),
   `Content-Security-Policy`, `X-Frame-Options` / `frame-ancestors`,
   `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
@@ -24,7 +25,14 @@ It fetches your site and inspects:
 - **CSRF** — POST forms without an anti-CSRF token.
 - **Exposed API surface** (with `--probe-paths`) — Swagger/OpenAPI, GraphQL
   introspection, Spring actuator, metrics endpoints.
-- **DNSSEC** (with `--dns`) — flags domains without DNSSEC.
+- **DNSSEC / zone transfer / policy strength** (with `--dns`) — DNSSEC presence,
+  a DNS **zone-transfer (AXFR)** attempt, weak DMARC (`p=none`) and permissive
+  SPF (`+all`, >10 lookups).
+- **Linked-asset scanning** — secret and malware detection also runs over
+  same-origin JavaScript/CSS files, not just the HTML (findings are attributed
+  to the asset URL).
+- **Error-page / debug-mode disclosure** — probes for framework stack traces and
+  debug consoles (Django, Flask/Werkzeug, Rails, Laravel, ASP.NET).
 - **Content integrity** (can the page/data be altered?) — mixed content
   (HTTP resources on an HTTPS page), third-party scripts without Subresource
   Integrity, and forms that submit over plain HTTP.

@@ -119,6 +119,107 @@ def dnskey_present(name: str, timeout: float = 5.0):
     return len(raw) > 0
 
 
+def _read_name(data: bytes, off: int):
+    """Decode a (possibly compressed) DNS name; return (name, next_offset)."""
+    labels = []
+    jumped = False
+    resume = off
+    guard = 0
+    while off < len(data) and guard < 128:
+        guard += 1
+        length = data[off]
+        if length == 0:
+            off += 1
+            break
+        if length & 0xC0 == 0xC0:
+            if off + 1 >= len(data):
+                break
+            ptr = ((length & 0x3F) << 8) | data[off + 1]
+            if not jumped:
+                resume = off + 2
+            off = ptr
+            jumped = True
+            continue
+        labels.append(data[off + 1:off + 1 + length].decode("ascii", "replace"))
+        off += 1 + length
+    return ".".join(labels), (resume if jumped else off)
+
+
+def _query_message(qname: str, qtype: int, timeout: float) -> Optional[bytes]:
+    packet = _build_query(qname, qtype)
+    for resolver in _RESOLVERS:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(min(timeout, 5.0))
+        try:
+            sock.sendto(packet, (resolver, 53))
+            return sock.recvfrom(4096)[0]
+        except (OSError, socket.timeout):
+            continue
+        finally:
+            sock.close()
+    return None
+
+
+def ns_records(domain: str, timeout: float = 5.0) -> Optional[List[str]]:
+    data = _query_message(domain, 2, timeout)  # type 2 = NS
+    if data is None:
+        return None
+    try:
+        _id, _flags, qd, an, _ns, _ar = struct.unpack(">HHHHHH", data[:12])
+    except struct.error:
+        return []
+    off = 12
+    for _ in range(qd):
+        _n, off = _read_name(data, off)
+        off += 4
+    names = []
+    for _ in range(an):
+        _n, off = _read_name(data, off)
+        if off + 10 > len(data):
+            break
+        rtype, _c, _ttl, rdlen = struct.unpack(">HHIH", data[off:off + 10])
+        off += 10
+        if rtype == 2:
+            nsname, _ = _read_name(data, off)
+            if nsname:
+                names.append(nsname.rstrip("."))
+        off += rdlen
+    return names
+
+
+def zone_transfer_open(domain: str, timeout: float = 5.0) -> Optional[bool]:
+    """Attempt an AXFR against the domain's nameservers. True if any allows it."""
+    nameservers = ns_records(domain, timeout)
+    if not nameservers:
+        return None
+    query = _build_query(domain, 252)  # type 252 = AXFR
+    for ns in nameservers[:3]:
+        try:
+            ip = socket.gethostbyname(ns)
+        except OSError:
+            continue
+        try:
+            with socket.create_connection((ip, 53), timeout=min(timeout, 5.0)) as sock:
+                sock.sendall(struct.pack(">H", len(query)) + query)
+                header = sock.recv(2)
+                if len(header) < 2:
+                    continue
+                length = struct.unpack(">H", header)[0]
+                resp = b""
+                while len(resp) < min(length, 4096):
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    resp += chunk
+                if len(resp) >= 12:
+                    ancount = struct.unpack(">HHHHHH", resp[:12])[3]
+                    if ancount >= 2:  # SOA + at least one real record = transfer worked
+                        return True
+        except (OSError, socket.timeout, struct.error):
+            continue
+    return False
+
+
 def _registrable_domain(host: str) -> str:
     labels = host.split(".")
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
@@ -134,7 +235,8 @@ def check_dns(host: str, timeout: float = 5.0) -> List[Finding]:
         # DNS unreachable — skip silently rather than reporting false gaps.
         return []
 
-    if not any(r.lower().startswith("v=spf1") for r in txt):
+    spf = next((r for r in txt if r.lower().startswith("v=spf1")), None)
+    if not spf:
         findings.append(
             Finding(
                 id="DNS-SPF",
@@ -148,9 +250,39 @@ def check_dns(host: str, timeout: float = 5.0) -> List[Finding]:
                 recommendation="Publish an SPF record listing your legitimate mail senders.",
             )
         )
+    else:
+        low = spf.lower()
+        if "+all" in low or low.rstrip().endswith(" all"):
+            findings.append(Finding(
+                id="DNS-SPF-ALL",
+                title="SPF record ends with a permissive '+all'",
+                severity=Severity.MEDIUM,
+                category="DNS & email",
+                description=(
+                    f"The SPF record for {domain} uses '+all' (or bare 'all'), which "
+                    "authorises any server to send mail as your domain — defeating SPF."
+                ),
+                recommendation="End the SPF record with '-all' (hard fail) or '~all' (soft fail).",
+                evidence=spf,
+            ))
+        lookups = sum(low.count(m) for m in ("include:", "a:", "mx:", "ptr", "exists:", "redirect="))
+        if lookups > 10:
+            findings.append(Finding(
+                id="DNS-SPF-LOOKUPS",
+                title="SPF record exceeds the 10 DNS-lookup limit",
+                severity=Severity.LOW,
+                category="DNS & email",
+                description=(
+                    f"The SPF record for {domain} appears to require more than 10 DNS "
+                    "lookups, which causes a permerror and makes SPF fail open."
+                ),
+                recommendation="Flatten includes to stay within the 10-lookup limit.",
+                evidence=f"~{lookups} lookup mechanisms",
+            ))
 
     dmarc = txt_records(f"_dmarc.{domain}", timeout) or []
-    if not any(r.lower().startswith("v=dmarc1") for r in dmarc):
+    dmarc_rec = next((r for r in dmarc if r.lower().startswith("v=dmarc1")), None)
+    if not dmarc_rec:
         findings.append(
             Finding(
                 id="DNS-DMARC",
@@ -164,6 +296,25 @@ def check_dns(host: str, timeout: float = 5.0) -> List[Finding]:
                 recommendation="Publish a DMARC record, starting at 'v=DMARC1; p=none' and tightening to 'reject'.",
             )
         )
+    else:
+        policy = ""
+        for part in dmarc_rec.lower().split(";"):
+            part = part.strip()
+            if part.startswith("p="):
+                policy = part[2:].strip()
+        if policy == "none":
+            findings.append(Finding(
+                id="DNS-DMARC-WEAK",
+                title="DMARC policy is 'p=none' (monitoring only)",
+                severity=Severity.LOW,
+                category="DNS & email",
+                description=(
+                    f"The DMARC policy for {domain} is 'p=none', so spoofed mail is "
+                    "reported but not rejected — it provides no active protection."
+                ),
+                recommendation="Move DMARC to 'p=quarantine' and then 'p=reject' once monitoring looks clean.",
+                evidence=dmarc_rec,
+            ))
 
     has_dnssec = dnskey_present(domain, timeout)
     if has_dnssec is False:
@@ -198,4 +349,18 @@ def check_dns(host: str, timeout: float = 5.0) -> List[Finding]:
                 recommendation="Add a CAA record naming your CA(s), e.g. '0 issue \"letsencrypt.org\"'.",
             )
         )
+
+    if zone_transfer_open(domain, timeout) is True:
+        findings.append(Finding(
+            id="DNS-AXFR",
+            title="DNS zone transfer (AXFR) allowed",
+            severity=Severity.HIGH,
+            category="DNS & email",
+            description=(
+                f"A nameserver for {domain} answered an AXFR request, handing over the "
+                "full DNS zone. This exposes every host and subdomain — a complete map "
+                "of your infrastructure for an attacker."
+            ),
+            recommendation="Restrict zone transfers to authorised secondary nameservers only.",
+        ))
     return findings

@@ -140,6 +140,13 @@ _SCENARIOS: Dict[str, str] = {
     "PATH-ACTUATOR": "Actuator endpoints leak environment variables, config and internals — often including secrets — for direct use in an attack.",
     "PATH-METRICS": "Metrics expose internal operational details that help an attacker profile and target the system.",
     "DNS-DNSSEC": "Without DNSSEC, an attacker who can poison DNS responses redirects your users to attacker-controlled servers.",
+    "DNS-AXFR": "An attacker performs a zone transfer to download every DNS record, revealing internal hosts, staging servers and infrastructure to target next.",
+    "DNS-SPF-ALL": "The permissive SPF lets an attacker send email as your domain that still passes SPF, powering convincing phishing.",
+    "DNS-DMARC-WEAK": "With DMARC set to p=none, spoofed email is reported but still delivered, so phishing using your domain reaches inboxes.",
+    "TLS-PROTO-OLD": "A network attacker forces a downgrade to the legacy TLS version and exploits its known weaknesses to decrypt or tamper with traffic.",
+    "TLS-CIPHER-WEAK": "The weak cipher lets a capable network attacker decrypt intercepted traffic, exposing credentials and session data.",
+    "INFO-DEBUG": "The exposed debugger/debug mode leaks source and configuration and can often be driven directly to execute code on the server.",
+    "INFO-STACKTRACE": "The stack trace reveals file paths, library versions and internal logic that an attacker uses to craft a targeted exploit.",
     # Malware / compromise
     "MALWARE-MINER": "Visitors' CPUs are hijacked to mine cryptocurrency for the attacker; its presence means your site is already compromised and serving attacker code.",
     "MALWARE-EVAL": "Obfuscated injected JavaScript runs in every visitor's browser — it can redirect users, steal data, or push malware, and indicates the site is hacked.",

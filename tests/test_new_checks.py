@@ -107,6 +107,8 @@ def test_check_dns_reports_missing_records(monkeypatch):
     import security_analyser.dns_checks as d
     monkeypatch.setattr(d, "txt_records", lambda name, timeout=5.0: [])
     monkeypatch.setattr(d, "caa_records", lambda name, timeout=5.0: [])
+    monkeypatch.setattr(d, "dnskey_present", lambda name, timeout=5.0: True)
+    monkeypatch.setattr(d, "zone_transfer_open", lambda name, timeout=5.0: False)
     findings = check_dns("example.com")
     found = ids(findings)
     assert {"DNS-SPF", "DNS-DMARC", "DNS-CAA"} <= found
