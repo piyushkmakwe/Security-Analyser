@@ -173,11 +173,10 @@ def probe_path(
 CORS_PROBE_ORIGIN = "https://sa-cors-probe.example"
 
 
-def probe_options(url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True):
-    """Send an OPTIONS request with a probe Origin.
+def _cors_options(url: str, origin: str, timeout: float, verify_tls: bool):
+    """Send one OPTIONS request with ``origin`` and return the CORS headers.
 
-    Returns ``(allowed_methods, cors_reflects, cors_with_credentials)``.
-    Best-effort: returns empty/false values on any error.
+    Returns ``(allow_methods, acao, allow_credentials)`` or ``None`` on error.
     """
     context = ssl.create_default_context()
     if not verify_tls:
@@ -190,7 +189,7 @@ def probe_options(url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool =
         url, method="OPTIONS",
         headers={
             "User-Agent": USER_AGENT,
-            "Origin": CORS_PROBE_ORIGIN,
+            "Origin": origin,
             "Access-Control-Request-Method": "GET",
         },
     )
@@ -201,15 +200,52 @@ def probe_options(url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool =
     except urllib.error.HTTPError as exc:
         headers = exc.headers
     except (urllib.error.URLError, socket.error, ssl.SSLError, OSError):
-        return [], False, False
+        return None
     if headers is None:
-        return [], False, False
+        return None
     allow = headers.get("Allow", "") or headers.get("Access-Control-Allow-Methods", "")
     methods = [m.strip().upper() for m in allow.split(",") if m.strip()]
     acao = (headers.get("Access-Control-Allow-Origin", "") or "").strip()
     creds = (headers.get("Access-Control-Allow-Credentials", "") or "").strip().lower() == "true"
+    return methods, acao, creds
+
+
+def probe_options(url: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True):
+    """Send an OPTIONS request with a probe Origin.
+
+    Returns ``(allowed_methods, cors_reflects, cors_with_credentials)``.
+    """
+    result = _cors_options(url, CORS_PROBE_ORIGIN, timeout, verify_tls)
+    if result is None:
+        return [], False, False
+    methods, acao, creds = result
     reflects = acao == CORS_PROBE_ORIGIN
     return methods, reflects, (reflects and creds)
+
+
+def probe_cors_bypass(url: str, host: str, timeout: float = DEFAULT_TIMEOUT, verify_tls: bool = True):
+    """Test common CORS allow-list bypasses.
+
+    Returns ``(allows_null, bypass_origin_or_None)`` where ``bypass_origin`` is a
+    crafted attacker origin that the server wrongly reflected with credentials.
+    """
+    allows_null = False
+    bypass = None
+    # An attacker-controlled origin that abuses naive prefix/suffix/substring checks.
+    crafted = [
+        f"https://{host}.attacker-probe.example",   # suffix match bug
+        f"https://attacker-probe-{host}",           # prefix match bug
+        f"https://{host}.evil.example",             # subdomain-of-attacker bug
+    ]
+    null_res = _cors_options(url, "null", timeout, verify_tls)
+    if null_res and null_res[1].lower() == "null" and null_res[2]:
+        allows_null = True
+    for origin in crafted:
+        res = _cors_options(url, origin, timeout, verify_tls)
+        if res and res[1] == origin and res[2]:
+            bypass = origin
+            break
+    return allows_null, bypass
 
 
 def probe_http_redirect(

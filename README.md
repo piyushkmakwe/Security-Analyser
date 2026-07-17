@@ -20,7 +20,10 @@ It fetches your site and inspects:
 - **Information disclosure** — `Server` / `X-Powered-By` version banners.
 - **Cross-origin isolation** — COOP / CORP / `X-Permitted-Cross-Domain-Policies`.
 - **HTTP methods** — flags dangerous methods (TRACE / PUT / DELETE) via `OPTIONS`.
-- **CORS Origin reflection** — server echoing arbitrary origins (critical with credentials).
+- **CORS Origin reflection & bypass** — server echoing arbitrary origins
+  (critical with credentials), `null`-origin acceptance, and allow-list bypasses
+  via crafted attacker origins.
+- **JWT weakness** — flags JSON Web Tokens that accept the `alg: none` (unsigned) algorithm.
 - **Vulnerable JS libraries** — known-vulnerable jQuery/Angular/lodash/etc. versions.
 - **CSRF** — POST forms without an anti-CSRF token.
 - **Exposed API surface** (with `--probe-paths`) — Swagger/OpenAPI, GraphQL
@@ -73,6 +76,11 @@ Reports also explain **how each issue could be exploited** — a plain-language
 attacker's-eye view of the harm each finding enables — plus an overall
 **"How this site could be harmed"** summary that synthesises the findings into
 the concrete ways someone could attack the site.
+
+Every report includes a **scan-coverage** section showing which check groups
+ran, were skipped, or errored (and why) — so "no findings" is never confused
+with "not tested". A **partial-scan** warning is raised if the target appears to
+block the scanner (WAF / rate limit).
 
 Every finding carries standardised metadata: a **CWE** id, its **OWASP Top 10**
 category, a **confidence** level (firm / tentative), reference links, and an

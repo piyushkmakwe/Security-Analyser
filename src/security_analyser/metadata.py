@@ -50,6 +50,9 @@ _META: Dict[str, Tuple[str, str, List[str]]] = {
     "FORM-CSRF": ("CWE-352", "A01", [_CHEATSHEET + "Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"]),
     # CORS
     "CORS-": ("CWE-942", "A05", [_CHEATSHEET + "HTML5_Security_Cheat_Sheet.html"]),
+    # JWT / scan meta
+    "JWT-ALG-NONE": ("CWE-347", "A02", [_CHEATSHEET + "JSON_Web_Token_for_Java_Cheat_Sheet.html"]),
+    "SCAN-": ("CWE-693", "A09", []),
     # Info / components
     "INFO-DEBUG": ("CWE-489", "A05", [_CHEATSHEET + "Error_Handling_Cheat_Sheet.html"]),
     "INFO-STACKTRACE": ("CWE-209", "A05", [_CHEATSHEET + "Error_Handling_Cheat_Sheet.html"]),

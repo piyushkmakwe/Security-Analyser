@@ -151,11 +151,16 @@ class ScanContext:
     allowed_methods: List[str] = field(default_factory=list)
     cors_reflects_origin: bool = False
     cors_reflect_with_credentials: bool = False
+    # CORS bypass probes (null origin / crafted attacker origin).
+    cors_allows_null: bool = False
+    cors_bypass_origin: Optional[str] = None
     # Set by the crawler / path prober / optional check groups.
     pages_scanned: int = 1
     paths_probed: bool = False
     dns_checked: bool = False
     active_checked: bool = False
+    # Per-check-group execution status: group -> {"status": ..., "detail": ...}
+    coverage: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     @property
     def is_https(self) -> bool:

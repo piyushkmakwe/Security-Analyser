@@ -156,14 +156,22 @@ def check_sql_injection(url: str, timeout: float, verify_tls: bool) -> List[Find
             hit = next((sig for sig in _SQL_ERRORS if sig in low), None)
             if hit:
                 return [_sqli_finding(param, f"database error signature: '{hit}'")]
-        # Boolean-based: TRUE condition should resemble baseline, FALSE should differ.
-        base = _fetch_body(_with_param(url, param, "1"), timeout, verify_tls)
-        t = _fetch_body(_with_param(url, param, "1' AND '1'='1"), timeout, verify_tls)
-        f = _fetch_body(_with_param(url, param, "1' AND '1'='2"), timeout, verify_tls)
-        if base and t and f and len(t) != len(f):
-            if abs(len(t) - len(base)) < abs(len(f) - len(base)) and _diff_ratio(t, f) < 0.95:
-                return [_sqli_finding(param, "boolean condition changed the response")]
+        # Boolean-based: require the TRUE≈baseline / FALSE≠baseline pattern to hold
+        # on TWO independent rounds, so dynamic content (rotating tokens, timestamps)
+        # does not produce a false positive.
+        if _boolean_sqli(url, param, timeout, verify_tls) and \
+                _boolean_sqli(url, param, timeout, verify_tls):
+            return [_sqli_finding(param, "boolean condition consistently changed the response")]
     return []
+
+
+def _boolean_sqli(url: str, param: str, timeout: float, verify_tls: bool) -> bool:
+    base = _fetch_body(_with_param(url, param, "1"), timeout, verify_tls)
+    t = _fetch_body(_with_param(url, param, "1' AND '1'='1"), timeout, verify_tls)
+    f = _fetch_body(_with_param(url, param, "1' AND '1'='2"), timeout, verify_tls)
+    if not (base and t and f) or len(t) == len(f):
+        return False
+    return abs(len(t) - len(base)) < abs(len(f) - len(base)) and _diff_ratio(t, f) < 0.95
 
 
 def _diff_ratio(a: str, b: str) -> float:
